@@ -15,5 +15,5 @@ set_target_properties(${EXECUTABLE_NAME} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 target_compile_options(${PROJECT_NAME}
-    PRIVATE "-Wall" "-pedantic" "-Ofast" "-march=native" "-funroll-loops"
+    PRIVATE "-Wall" "-pedantic" "-Ofast" "-march=native" "-finline-functions" "-funroll-loops"
 )
