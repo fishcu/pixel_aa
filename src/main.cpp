@@ -93,7 +93,11 @@ vec3 sample_aa(const image_handle& in_img, const image_handle& out_img,
     const vec2 pix_coord_shifted = pix_coord - pix_center;
     // Get the period and phase.
     vec2 period;
-    const vec2 phase = modf(pix_coord_shifted, period);
+    vec2 phase = modf(pix_coord_shifted, period);
+
+    // Debug: Some normalization
+    // period = abs(period);
+
     // Get texels per pixel
     const vec2 in_size{in_img.width, in_img.height};
     const vec2 out_size{out_img.width, out_img.height};
@@ -102,11 +106,34 @@ vec3 sample_aa(const image_handle& in_img, const image_handle& out_img,
     // 0.5 - 0.5 / pixels_per_texel, then reaches 0.5 at 0.5,
     // Then reaches 1 at 0.5 + 0.5 / pixels_per_texel.
     // For sharpness values < 1.0, transition to bilinear filtering.
-    const vec2 offset = slopestep(
-        min(1.0f, sharpness) * (vec2(0.5f) - 0.5f * tx_per_pix),
-        vec2(1.0f) - min(1.0f, sharpness) *
-                         (vec2(1.0f) - (vec2(0.5f) + 0.5f * tx_per_pix)),
-        phase, max(1.0f, sharpness));
+    const vec2 transition_start =
+        min(1.0f, sharpness) * (vec2(0.5f) - 0.5f * tx_per_pix);
+    const vec2 transition_end =
+        vec2(1.0f) -
+        min(1.0f, sharpness) * (vec2(1.0f) - (vec2(0.5f) + 0.5f * tx_per_pix));
+    const vec2 offset = slopestep(transition_start, transition_end, phase,
+                                  max(1.0f, sharpness));
+
+    // if (gamma_correct) {
+    //     printf("input shifted         x = %.3f,\t y = %.3f\n",
+    //            pix_coord_shifted.x, pix_coord_shifted.y);
+    //     printf("period                x = %.3f,\t y = %.3f\n", period.x,
+    //            period.y);
+    //     printf("phase                 x = %.3f,\t y = %.3f\n", phase.x,
+    //            phase.y);
+    //     printf("1 / tx_per_pix        x = %.3f,\t y = %.3f\n",
+    //            1.0 / tx_per_pix.x, 1.0 / tx_per_pix.y);
+    //     printf("tx_per_pix            x = %.3f,\t y = %.3f\n", tx_per_pix.x,
+    //            tx_per_pix.y);
+    //     printf("offset trans start    x = %.3f,\t y = %.3f\n",
+    //            transition_start.x, transition_start.y);
+    //     printf("offset transition end x = %.3f,\t y = %.3f\n",
+    //     transition_end.x,
+    //            transition_end.y);
+    //     printf("OFFSET                x = %.3f,\t y = %.3f\n", offset.x,
+    //            offset.y);
+    //     printf("\n");
+    // }
 
     // With gamma correct blending, we have to do 4 taps and blend manually.
     // Without it, we can make use of a single tap using bilinear interpolation.
@@ -167,9 +194,9 @@ int main(int argc, char* argv[]) {
     image_handle out_img{out_img_data.get(), out_res.x, out_res.y, channels};
 
     constexpr bool gamma_correct = true;
-    constexpr bool subpix_interpolation = false;
+    constexpr bool subpix_interpolation = true;
     constexpr bool subpix_bgr = false;
-    constexpr float sharpness = 0.5f;
+    constexpr float sharpness = 1.5f;
 
     // Iterate over all pixels in the output image
     for (int y = 0; y < out_img.height; ++y) {
@@ -201,11 +228,31 @@ int main(int argc, char* argv[]) {
                         in_coord + subpix_offset *
                                        vec2(in_img.width, in_img.height) /
                                        vec2(out_img.width, out_img.height);
-                    // The (sub-)pixel center is at 1/6, 1/2, and 5/6,
-                    // respectively.
-                    sampled[i + 1] =
-                        sample_aa(in_img, out_img, subpix_coord, gamma_correct,
-                                  sharpness, 0.5f + subpix_offset)[i + 1];
+
+                    // if (x < 12 && y == 0) {
+                    //     if (i == -1) {
+                    //         printf(
+                    //             "RED channel at output x = %.3f,\t y =
+                    //             %.3f\n", out_coord.x, out_coord.y);
+                    //         printf(
+                    //             "in_coord              x = %.3f,\t y =
+                    //             %.3f\n", in_coord.x, in_coord.y);
+                    //         printf(
+                    //             "subpix offset         x = %.3f,\t y =
+                    //             %.3f\n", subpix_offset.x, subpix_offset.y);
+                    //         printf(
+                    //             "subpix coord (input)  x = %.3f,\t y =
+                    //             %.3f\n", subpix_coord.x, subpix_coord.y);
+                    //         printf(
+                    //             "subpix center (input) x = %.3f,\t y =
+                    //             %.3f\n", subpix_center.x, subpix_center.y);
+                    //     }
+                    // } else {
+                    //     return 0;
+                    // }
+
+                    sampled[i + 1] = sample_aa(in_img, out_img, subpix_coord,
+                                               gamma_correct, sharpness)[i + 1];
                 }
             }
             /////////////////////////////////////////////
