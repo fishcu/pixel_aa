@@ -1,3 +1,4 @@
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -114,27 +115,6 @@ vec3 sample_aa(const image_handle& in_img, const image_handle& out_img,
     const vec2 offset = slopestep(transition_start, transition_end, phase,
                                   max(1.0f, sharpness));
 
-    // if (gamma_correct) {
-    //     printf("input shifted         x = %.3f,\t y = %.3f\n",
-    //            pix_coord_shifted.x, pix_coord_shifted.y);
-    //     printf("period                x = %.3f,\t y = %.3f\n", period.x,
-    //            period.y);
-    //     printf("phase                 x = %.3f,\t y = %.3f\n", phase.x,
-    //            phase.y);
-    //     printf("1 / tx_per_pix        x = %.3f,\t y = %.3f\n",
-    //            1.0 / tx_per_pix.x, 1.0 / tx_per_pix.y);
-    //     printf("tx_per_pix            x = %.3f,\t y = %.3f\n", tx_per_pix.x,
-    //            tx_per_pix.y);
-    //     printf("offset trans start    x = %.3f,\t y = %.3f\n",
-    //            transition_start.x, transition_start.y);
-    //     printf("offset transition end x = %.3f,\t y = %.3f\n",
-    //     transition_end.x,
-    //            transition_end.y);
-    //     printf("OFFSET                x = %.3f,\t y = %.3f\n", offset.x,
-    //            offset.y);
-    //     printf("\n");
-    // }
-
     // With gamma correct blending, we have to do 4 taps and blend manually.
     // Without it, we can make use of a single tap using bilinear interpolation.
     if (gamma_correct) {
@@ -194,75 +174,63 @@ int main(int argc, char* argv[]) {
     image_handle out_img{out_img_data.get(), out_res.x, out_res.y, channels};
 
     constexpr bool gamma_correct = true;
-    constexpr bool subpix_interpolation = true;
+    constexpr bool subpix_interpolation = false;
     constexpr bool subpix_bgr = false;
     constexpr float sharpness = 1.5f;
 
+    // Measure performance
+    auto start = std::chrono::high_resolution_clock::now();
+    constexpr int num_perf_passes = 10;
+
     // Iterate over all pixels in the output image
-    for (int y = 0; y < out_img.height; ++y) {
-        // Compute the y pointer offset
-        for (int x = 0; x < out_img.width; ++x) {
-            const vec2 out_coord{x + 0.5, y + 0.5};
-            vec2 in_coord(out_coord.x * in_width / out_res.x,
-                          out_coord.y * in_height / out_res.y);
+    for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
+        for (int y = 0; y < out_img.height; ++y) {
+            // Compute the y pointer offset
+            for (int x = 0; x < out_img.width; ++x) {
+                const vec2 out_coord{x + 0.5, y + 0.5};
+                vec2 in_coord(out_coord.x * in_width / out_res.x,
+                              out_coord.y * in_height / out_res.y);
 
-            // Bilinear sampling
-            /*
-            const vec3 sampled = tex(in_img, input_coord);
-            */
+                ////////////////////////////////////////////
+                // Pixel AA
+                vec3 sampled;
+                if (!subpix_interpolation) {
+                    sampled = sample_aa(in_img, out_img, in_coord,
+                                        gamma_correct, sharpness);
+                } else {
+                    // Subpixel sampling: Shift the sampling by 1/3rd of an
+                    // output pixel, assuming that the output size is at monitor
+                    // resolution.
+                    for (int i = -1; i < 2; ++i) {
+                        const vec2 subpix_offset =
+                            vec2((subpix_bgr ? -i : i) / 3.0f, 0.0f);
+                        const vec2 subpix_coord =
+                            in_coord + subpix_offset *
+                                           vec2(in_img.width, in_img.height) /
+                                           vec2(out_img.width, out_img.height);
 
-            ////////////////////////////////////////////
-            // Pixel AA
-            vec3 sampled;
-            if (!subpix_interpolation) {
-                sampled = sample_aa(in_img, out_img, in_coord, gamma_correct,
-                                    sharpness);
-            } else {
-                // Subpixel sampling: Shift the sampling by 1/3rd of an output
-                // pixel, assuming that the output size is at monitor
-                // resolution.
-                for (int i = -1; i < 2; ++i) {
-                    const vec2 subpix_offset =
-                        vec2((subpix_bgr ? -i : i) / 3.0f, 0.0f);
-                    const vec2 subpix_coord =
-                        in_coord + subpix_offset *
-                                       vec2(in_img.width, in_img.height) /
-                                       vec2(out_img.width, out_img.height);
-
-                    // if (x < 12 && y == 0) {
-                    //     if (i == -1) {
-                    //         printf(
-                    //             "RED channel at output x = %.3f,\t y =
-                    //             %.3f\n", out_coord.x, out_coord.y);
-                    //         printf(
-                    //             "in_coord              x = %.3f,\t y =
-                    //             %.3f\n", in_coord.x, in_coord.y);
-                    //         printf(
-                    //             "subpix offset         x = %.3f,\t y =
-                    //             %.3f\n", subpix_offset.x, subpix_offset.y);
-                    //         printf(
-                    //             "subpix coord (input)  x = %.3f,\t y =
-                    //             %.3f\n", subpix_coord.x, subpix_coord.y);
-                    //         printf(
-                    //             "subpix center (input) x = %.3f,\t y =
-                    //             %.3f\n", subpix_center.x, subpix_center.y);
-                    //     }
-                    // } else {
-                    //     return 0;
-                    // }
-
-                    sampled[i + 1] = sample_aa(in_img, out_img, subpix_coord,
-                                               gamma_correct, sharpness)[i + 1];
+                        sampled[i + 1] =
+                            sample_aa(in_img, out_img, subpix_coord,
+                                      gamma_correct, sharpness)[i + 1];
+                    }
                 }
-            }
-            /////////////////////////////////////////////
+                /////////////////////////////////////////////
 
-            // Write output pixel
-            for (int c = 0; c < channels; ++c) {
-                out_img.at(x, y, c) = sampled[c] * 255.0;
+                // Write output pixel
+                for (int c = 0; c < channels; ++c) {
+                    out_img.at(x, y, c) = sampled[c] * 255.0;
+                }
             }
         }
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    printf("Time for %d passes: %ld ms, that is %f ms per pass.\n",
+           num_perf_passes, duration.count(),
+           static_cast<float>(duration.count()) / num_perf_passes);
 
     // Save the resulting image
     // Get the directory path and file name from the input file path
