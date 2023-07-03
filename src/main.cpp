@@ -18,58 +18,6 @@ struct image_handle {
     unsigned char& at(int x, int y, int c) { return data[index(x, y) + c]; }
 };
 
-// Function to handle "mirror repeat" texture addressing
-ivec2 mirror_repeat(const ivec2& coord, const ivec2& size) {
-    ivec2 result;
-    result.x = coord.x % (2 * size.x);
-    result.y = coord.y % (2 * size.y);
-    if (result.x < 0) result.x += 2 * size.x;
-    if (result.y < 0) result.y += 2 * size.y;
-    if (result.x >= size.x) result.x = 2 * size.x - result.x - 1;
-    if (result.y >= size.y) result.y = 2 * size.y - result.y - 1;
-    return result;
-}
-
-// Function to perform nearest-neighbor texture lookup
-vec3 tex_nn(const image_handle& img, const ivec2& tex_coord) {
-    // Handle texture addressing beyond image bounds using "mirror repeat"
-    const ivec2 tex_coord_bounded =
-        mirror_repeat(tex_coord, ivec2(img.width, img.height));
-
-    // Calculate the pixel index
-    const int pixel_index = img.index(tex_coord_bounded.x, tex_coord_bounded.y);
-
-    // Extract the pixel values
-    vec3 pixel;
-    for (int c = 0; c < img.channels; ++c) {
-        pixel[c] = static_cast<float>(img.data[pixel_index + c]) / 255.0f;
-    }
-
-    return pixel;
-}
-
-// Function to perform bilinear interpolation for texture lookup
-vec3 tex(const image_handle& img, const vec2& tex_coord) {
-    // Calculate the four nearest texel coordinates
-    const ivec2 texel1(floor(tex_coord.x - 0.5), floor(tex_coord.y - 0.5));
-    const ivec2 texel2(texel1.x + 1, texel1.y);
-    const ivec2 texel3(texel1.x, texel1.y + 1);
-    const ivec2 texel4(texel1.x + 1, texel1.y + 1);
-
-    // Calculate the weights for bilinear interpolation
-    const vec2 weight(tex_coord.x - 0.5 - texel1.x,
-                      tex_coord.y - 0.5 - texel1.y);
-
-    // Perform bilinear interpolation
-    const vec3 pixel1 = tex_nn(img, texel1);
-    const vec3 pixel2 = tex_nn(img, texel2);
-    const vec3 pixel3 = tex_nn(img, texel3);
-    const vec3 pixel4 = tex_nn(img, texel4);
-
-    return mix(mix(pixel1, pixel2, weight.x), mix(pixel3, pixel4, weight.x),
-               weight.y);
-}
-
 template <typename T>
 T slopestep(T edge0, T edge1, T x, float slope) {
     x = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
@@ -82,61 +30,6 @@ vec3 to_lin(vec3 x) { return pow(x, vec3(2.2)); }
 
 vec3 to_srgb(vec3 x) { return pow(x, vec3(1.0 / 2.2)); }
 
-// Params:
-// pix_coord: Coordinate in source pixel coordinates
-vec3 sample_aa(const image_handle& in_img, const image_handle& out_img,
-               vec2 pix_coord, bool gamma_correct, float sharpness,
-               vec2 pix_center) {
-    // The offset for interpolation is a periodic function with
-    // a period length of 1 pixel in source pixel coordinates.
-    // The input coordinate is shifted so that the center of the pixel
-    // aligns with the start of the period.
-    const vec2 pix_coord_shifted = pix_coord - pix_center;
-    // Get the period and phase.
-    vec2 period;
-    vec2 phase = modf(pix_coord_shifted, period);
-
-    // Debug: Some normalization
-    // period = abs(period);
-
-    // Get texels per pixel
-    const vec2 in_size{in_img.width, in_img.height};
-    const vec2 out_size{out_img.width, out_img.height};
-    const vec2 tx_per_pix = in_size / out_size;
-    // The function starts at 0, then starts transitioning at
-    // 0.5 - 0.5 / pixels_per_texel, then reaches 0.5 at 0.5,
-    // Then reaches 1 at 0.5 + 0.5 / pixels_per_texel.
-    // For sharpness values < 1.0, transition to bilinear filtering.
-    const vec2 transition_start =
-        min(1.0f, sharpness) * (vec2(0.5f) - 0.5f * tx_per_pix);
-    const vec2 transition_end =
-        vec2(1.0f) -
-        min(1.0f, sharpness) * (vec2(1.0f) - (vec2(0.5f) + 0.5f * tx_per_pix));
-    const vec2 offset = slopestep(transition_start, transition_end, phase,
-                                  max(1.0f, sharpness));
-
-    // With gamma correct blending, we have to do 4 taps and blend manually.
-    // Without it, we can make use of a single tap using bilinear interpolation.
-    if (gamma_correct) {
-        const vec3 samples[] = {to_lin(tex(in_img, period + vec2(0.5f))),
-                                to_lin(tex(in_img, period + vec2(1.5f, 0.5f))),
-                                to_lin(tex(in_img, period + vec2(0.5f, 1.5f))),
-                                to_lin(tex(in_img, period + vec2(1.5f)))};
-        return to_srgb(mix(mix(samples[0], samples[1], offset.x),
-                           mix(samples[2], samples[3], offset.x), offset.y));
-    } else {
-        return tex(in_img, period + 0.5f + offset);
-    }
-}
-
-vec3 sample_aa(const image_handle& in_img, const image_handle& out_img,
-               vec2 pix_coord, bool gamma_correct, float sharpness) {
-    // The default pixel center is at 0.5, 0.5 offset from the corner.
-    // Make this configurable for subpixel AA.
-    return sample_aa(in_img, out_img, pix_coord, gamma_correct, sharpness,
-                     vec2(0.5));
-}
-
 int main(int argc, char* argv[]) {
     if (argc < 4) {
         printf("Usage: %s <input_path> <target_width> <target_height>\n",
@@ -145,8 +38,6 @@ int main(int argc, char* argv[]) {
     }
 
     const std::string input_path = argv[1];
-    const ivec2 out_res(std::stoi(argv[2]), std::stoi(argv[3]));
-
     int in_width, in_height, channels;
     unsigned char* in_img_data =
         stbi_load(input_path.c_str(), &in_width, &in_height, &channels, 0);
@@ -154,6 +45,12 @@ int main(int argc, char* argv[]) {
         printf("Failed to load image.\n");
         return 1;
     }
+    if (channels != 3) {
+        printf("Only 3 channel images are supported. Image has %d channels.\n",
+               channels);
+        return 1;
+    }
+    const int in_img_bytes = in_width * in_height * channels;
     image_handle in_img{in_img_data, in_width, in_height, channels};
 
     printf("Image loaded successfully.\n");
@@ -161,73 +58,81 @@ int main(int argc, char* argv[]) {
     printf("Image height: %d\n", in_height);
     printf("Number of channels: %d\n", channels);
 
-    if (out_res.x < in_width || out_res.y < in_height) {
+    // Allocate memory for the output image
+    const int out_width = std::stoi(argv[2]);
+    const int out_height = std::stoi(argv[3]);
+    if (out_width < in_width || out_height < in_height) {
         printf("Error: Target size is smaller than the input image size.\n");
         stbi_image_free(in_img.data);
         return 1;
     }
-
-    // Allocate memory for the output image
-    const int output_size = out_res.x * out_res.y * channels;
+    const int output_size = out_width * out_height * channels;
     std::unique_ptr<unsigned char[]> out_img_data(
         new unsigned char[output_size]);
-    image_handle out_img{out_img_data.get(), out_res.x, out_res.y, channels};
+    image_handle out_img{out_img_data.get(), out_width, out_height, channels};
 
-    constexpr bool gamma_correct = true;
-    constexpr bool subpix_interpolation = false;
-    constexpr bool subpix_bgr = false;
     constexpr float sharpness = 1.5f;
 
+    const vec2 in_size{in_img.width, in_img.height};
+    const vec2 out_size{out_img.width, out_img.height};
+    const vec2 tx_per_pix = in_size / out_size;
+    const vec2 transition_start =
+        min(1.0f, sharpness) * (vec2(0.5f) - 0.5f * tx_per_pix);
+    const vec2 transition_end =
+        vec2(1.0f) -
+        min(1.0f, sharpness) * (vec2(1.0f) - (vec2(0.5f) + 0.5f * tx_per_pix));
+
     // Measure performance
-    auto start = std::chrono::high_resolution_clock::now();
+    const auto start = std::chrono::high_resolution_clock::now();
     constexpr int num_perf_passes = 10;
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
         for (int y = 0; y < out_img.height; ++y) {
-            // Compute the y pointer offset
+            const int out_row_offset = y * out_img.width * channels;
+            const float in_y = (y + 0.5f) * in_height / out_height - 0.5f;
+            const float period_y = floor(in_y);
+            const float phase_y = fract(in_y);
+            const int in_row_offset = period_y * in_img.width * channels;
+
             for (int x = 0; x < out_img.width; ++x) {
-                const vec2 out_coord{x + 0.5, y + 0.5};
-                vec2 in_coord(out_coord.x * in_width / out_res.x,
-                              out_coord.y * in_height / out_res.y);
+                const float in_x = (x + 0.5f) * in_width / out_width - 0.5f;
+                const float period_x = floor(in_x);
+                const float phase_x = fract(in_x);
 
-                ////////////////////////////////////////////
-                // Pixel AA
-                vec3 sampled;
-                if (!subpix_interpolation) {
-                    sampled = sample_aa(in_img, out_img, in_coord,
-                                        gamma_correct, sharpness);
-                } else {
-                    // Subpixel sampling: Shift the sampling by 1/3rd of an
-                    // output pixel, assuming that the output size is at monitor
-                    // resolution.
-                    for (int i = -1; i < 2; ++i) {
-                        const vec2 subpix_offset =
-                            vec2((subpix_bgr ? -i : i) / 3.0f, 0.0f);
-                        const vec2 subpix_coord =
-                            in_coord + subpix_offset *
-                                           vec2(in_img.width, in_img.height) /
-                                           vec2(out_img.width, out_img.height);
-
-                        sampled[i + 1] =
-                            sample_aa(in_img, out_img, subpix_coord,
-                                      gamma_correct, sharpness)[i + 1];
-                    }
-                }
-                /////////////////////////////////////////////
+                const vec2 offset =
+                    slopestep(transition_start, transition_end,
+                              vec2(phase_x, phase_y), max(1.0f, sharpness));
 
                 // Write output pixel
                 for (int c = 0; c < channels; ++c) {
-                    out_img.at(x, y, c) = sampled[c] * 255.0;
+                    const unsigned char val[] = {
+                        in_img.data[clamp(
+                            in_row_offset + int(period_x) * channels + c, 0,
+                            in_img_bytes - 1)],
+                        in_img.data[clamp(
+                            in_row_offset + int(period_x + 1) * channels + c, 0,
+                            in_img_bytes - 1)],
+                        in_img.data[clamp(in_row_offset +
+                                              in_img.width * channels +
+                                              int(period_x) * channels + c,
+                                          0, in_img_bytes - 1)],
+                        in_img.data[clamp(in_row_offset +
+                                              in_img.width * channels +
+                                              int(period_x + 1) * channels + c,
+                                          0, in_img_bytes - 1)],
+                    };
+                    out_img.data[out_row_offset + x * channels + c] =
+                        mix(mix(val[0], val[1], offset.x),
+                            mix(val[2], val[3], offset.x), offset.y);
                 }
             }
         }
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
+    const auto end = std::chrono::high_resolution_clock::now();
+    const auto duration =
         std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
     printf("Time for %d passes: %ld ms, that is %f ms per pass.\n",
            num_perf_passes, duration.count(),
            static_cast<float>(duration.count()) / num_perf_passes);
@@ -245,8 +150,8 @@ int main(int argc, char* argv[]) {
     std::string output_path =
         directory + "/" + output_file_name + "_output.png";
 
-    if (stbi_write_png(output_path.c_str(), out_res.x, out_res.y, channels,
-                       out_img_data.get(), out_res.x * channels) == 0) {
+    if (stbi_write_png(output_path.c_str(), out_width, out_height, channels,
+                       out_img_data.get(), out_width * channels) == 0) {
         printf("Failed to save the output image.\n");
         stbi_image_free(in_img.data);
         return 1;
