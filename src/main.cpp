@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -24,6 +25,11 @@ T slopestep(T edge0, T edge1, T x, float slope) {
     const T s = sign(x - 0.5f);
     const T o = (1.0f + s) * 0.5f;
     return o - 0.5f * s * pow(2.0f * (o - s * x), T{slope});
+}
+
+float smoothstep(float edge0, float edge1, float x) {
+    float t = fmaxf(0.0f, fminf(1.0f, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3.0f - 2.0f * t);
 }
 
 vec3 to_lin(vec3 x) { return pow(x, vec3(2.2)); }
@@ -71,40 +77,40 @@ int main(int argc, char* argv[]) {
         new unsigned char[output_size]);
     image_handle out_img{out_img_data.get(), out_width, out_height, channels};
 
-    constexpr float sharpness = 1.5f;
-
+    // Stuff that's constant over the whole image
     const vec2 in_size{in_img.width, in_img.height};
     const vec2 out_size{out_img.width, out_img.height};
     const vec2 tx_per_pix = in_size / out_size;
-    const vec2 transition_start =
-        min(1.0f, sharpness) * (vec2(0.5f) - 0.5f * tx_per_pix);
-    const vec2 transition_end =
-        vec2(1.0f) -
-        min(1.0f, sharpness) * (vec2(1.0f) - (vec2(0.5f) + 0.5f * tx_per_pix));
+    const vec2 transition_start = vec2(0.5f) - 0.5f * tx_per_pix;
+    const vec2 transition_end = vec2(0.5f) + 0.5f * tx_per_pix;
+    const float in_x_step = static_cast<float>(in_width) / out_width;
+    const float in_y_step = static_cast<float>(in_height) / out_height;
 
     // Measure performance
     const auto start = std::chrono::high_resolution_clock::now();
-    constexpr int num_perf_passes = 10;
+    constexpr int num_perf_passes = 100;
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
+        float in_y = 0.5f * in_y_step - 0.5f;
         for (int y = 0; y < out_img.height; ++y) {
             const int out_row_offset = y * out_img.width * channels;
-            const float in_y = (y + 0.5f) * in_height / out_height - 0.5f;
+
             const float period_y = floor(in_y);
             const float phase_y = fract(in_y);
+            const float offset_y =
+                smoothstep(transition_start.y, transition_end.y, phase_y);
+
             const int in_row_offset = period_y * in_img.width * channels;
 
+            float in_x = 0.5f * in_x_step - 0.5f;
             for (int x = 0; x < out_img.width; ++x) {
-                const float in_x = (x + 0.5f) * in_width / out_width - 0.5f;
                 const float period_x = floor(in_x);
                 const float phase_x = fract(in_x);
+                const float offset_x =
+                    smoothstep(transition_start.x, transition_end.x, phase_x);
 
-                const vec2 offset =
-                    slopestep(transition_start, transition_end,
-                              vec2(phase_x, phase_y), max(1.0f, sharpness));
-
-                // Write output pixel
+                // Calc. and write output pixel
                 for (int c = 0; c < channels; ++c) {
                     const unsigned char val[] = {
                         in_img.data[clamp(
@@ -123,10 +129,12 @@ int main(int argc, char* argv[]) {
                                           0, in_img_bytes - 1)],
                     };
                     out_img.data[out_row_offset + x * channels + c] =
-                        mix(mix(val[0], val[1], offset.x),
-                            mix(val[2], val[3], offset.x), offset.y);
+                        mix(mix(val[0], val[1], offset_x),
+                            mix(val[2], val[3], offset_x), offset_y);
                 }
+                in_x += in_x_step;
             }
+            in_y += in_y_step;
         }
     }
 
