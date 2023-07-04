@@ -12,13 +12,25 @@
 
 // using namespace glm;
 
-inline int clamp(int x, int min_val, int max_val) {
-    if (x < min_val)
-        return min_val;
-    else if (x > max_val)
-        return max_val;
-    else
-        return x;
+template <typename T>
+inline T clamp(T value, T min, T max) {
+    if (value < min) {
+        return min;
+    } else if (value > max) {
+        return max;
+    } else {
+        return value;
+    }
+}
+
+inline float sign(float value) {
+    if (value < 0.0f) {
+        return -1.0f;
+    } else if (value > 0.0f) {
+        return 1.0f;
+    } else {
+        return 0.0f;
+    }
 }
 
 inline float mix(float x, float y, float a) { return x * (1.0 - a) + y * a; }
@@ -27,7 +39,19 @@ inline float mix(float x, float y, float a) { return x * (1.0 - a) + y * a; }
 
 // vec3 to_srgb(vec3 x) { return pow(x, vec3(1.0 / 2.2)); }
 
-#define OFFSET_TOL 1.0e-4f
+#define OFFSET_TOL 1.0e-2f
+
+float smoothstep(float edge0, float edge1, float x) {
+    float t = fmaxf(0.0, fminf(1.0, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3.0 - 2.0 * t);
+}
+
+float slopestep(float edge0, float edge1, float x, float slope) {
+    x = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    const float s = sign(x - 0.5f);
+    const float o = (1.0f + s) * 0.5f;
+    return o - 0.5f * s * pow(2.0f * (o - s * x), slope);
+}
 
 int main(int argc, char* argv[]) {
     if (argc < 4) {
@@ -68,51 +92,60 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<unsigned char[]> out_img_data(
         new unsigned char[output_size]);
 
+    // Stuff that's constant over the whole image
+    const float filter_width = static_cast<float>(out_width) / in_width;
+    const float filter_height = static_cast<float>(out_height) / in_height;
+    const float in_x_step = static_cast<float>(in_width) / out_width;
+    const float in_y_step = static_cast<float>(in_height) / out_height;
+    const float transition_start_x = 0.5f - 0.5f * in_x_step;
+    const float transition_start_y = 0.5f - 0.5f * in_y_step;
+
+    const int in_neighbor_offsets[] = {channels, in_width * channels,
+                                       in_width * channels + channels};
+
+    // Precompute interpolation weights
+    constexpr float sharpness = 1.5f;
+    std::unique_ptr<int[]> in_x(new int[out_width]);
+    std::unique_ptr<int[]> in_y(new int[out_height]);
+    std::unique_ptr<float[]> weights_x(new float[out_width]);
+    std::unique_ptr<float[]> weights_y(new float[out_height]);
+    for (int x = 0; x < out_width; ++x) {
+        const float in = (x + 0.5f) * in_x_step - 0.5f;
+        in_x[x] = in;
+        const float phase = in - in_x[x];
+        weights_x[x] =
+            smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
+    }
+    for (int y = 0; y < out_height; ++y) {
+        const float in = (y + 0.5f) * in_y_step - 0.5f;
+        in_y[y] = in;
+        const float phase = in - in_y[y];
+        weights_y[y] =
+            smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
+    }
+
     // Measure performance
     const auto start = std::chrono::high_resolution_clock::now();
     constexpr int num_perf_passes = 100;
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
-        // Stuff that's constant over the whole image
-        const float filter_width = static_cast<float>(out_width) / in_width;
-        const float filter_height = static_cast<float>(out_height) / in_height;
-        const float in_x_step = static_cast<float>(in_width) / out_width;
-        const float in_y_step = static_cast<float>(in_height) / out_height;
-        const float transition_start_x = 0.5f - 0.5f * in_x_step;
-        const float transition_start_y = 0.5f - 0.5f * in_y_step;
-
-        const int in_neighbor_offsets[] = {channels, in_width * channels,
-                                           in_width * channels + channels};
-
-        float in_y = 0.5f * in_y_step - 0.5f;
+        // float in_y = 0.5f * in_y_step - 0.5f;
         for (int y = 0; y < out_height; ++y) {
             const int out_row_offset = y * out_width * channels;
 
-            const int period_y = in_y;
-            const float phase_y = in_y - period_y;
-            const float s = fmaxf(
-                0.0f,
-                fminf(1.0f, (phase_y - transition_start_y) * filter_height));
-            const float offset_y = s * s * (3.0f - 2.0f * s);
+            const int in_row_offset = in_y[y] * in_width * channels;
+            const float offset_y = weights_y[y];
 
-            const int in_row_offset = period_y * in_width * channels;
-
-            float in_x = 0.5f * in_x_step - 0.5f;
+            // float in_x = 0.5f * in_x_step - 0.5f;
             for (int x = 0; x < out_width; ++x) {
-                const int period_x = in_x;
-                const float phase_x = in_x - period_x;
-                const float t = fmaxf(
-                    0.0f,
-                    fminf(1.0f, (phase_x - transition_start_x) * filter_width));
-                const float offset_x = t * t * (3.0f - 2.0f * t);
+                const float offset_x = weights_x[x];
 
                 // Calc. and write output pixel
                 // Do a bilinear sampling with branching for often-occuring 0
                 // and 1 weight samples.
-                const int base_in_idx = in_row_offset + period_x * channels;
+                const int base_in_idx = in_row_offset + in_x[x] * channels;
                 const int base_out_idx = out_row_offset + x * channels;
-
                 if (offset_y < OFFSET_TOL || offset_y > 1.0f - OFFSET_TOL) {
                     const int extra_in_idx_offset =
                         int(offset_y + 0.5f) * in_width * channels;
@@ -179,9 +212,9 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
-                in_x += in_x_step;
+                // in_x += in_x_step;
             }
-            in_y += in_y_step;
+            // in_y += in_y_step;
         }
     }
 
