@@ -91,6 +91,7 @@ int main(int argc, char* argv[]) {
     const int output_size = out_width * out_height * channels;
     std::unique_ptr<unsigned char[]> out_img_data(
         new unsigned char[output_size]);
+    unsigned char* out = out_img_data.get();
 
     // Stuff that's constant over the whole image
     const float filter_width = static_cast<float>(out_width) / in_width;
@@ -150,11 +151,10 @@ int main(int argc, char* argv[]) {
                     if (offset_x < OFFSET_TOL || offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
                         for (int c = 0; c < channels; ++c) {
-                            out_img_data.get()[base_out_idx + c] =
-                                in_img_data[clamp(
-                                    base_in_idx + extra_in_idx_offset +
-                                        int(offset_x + 0.5f) * channels + c,
-                                    0, in_img_bytes - 1)];
+                            out[base_out_idx + c] = in_img_data[clamp(
+                                base_in_idx + extra_in_idx_offset +
+                                    int(offset_x + 0.5f) * channels + c,
+                                0, in_img_bytes - 1)];
                         }
                     } else {
                         // Need 2 samples, mix with offset_x
@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
                                                       extra_in_idx_offset +
                                                       channels + c,
                                                   0, in_img_bytes - 1)]};
-                            out_img_data.get()[base_out_idx + c] =
+                            out[base_out_idx + c] =
                                 mix(val[0], val[1], offset_x);
                         }
                     }
@@ -185,7 +185,7 @@ int main(int argc, char* argv[]) {
                                                       extra_in_idx_offset +
                                                       in_width * channels + c,
                                                   0, in_img_bytes - 1)]};
-                            out_img_data.get()[base_out_idx + c] =
+                            out[base_out_idx + c] =
                                 mix(val[0], val[1], offset_y);
                         }
                     } else {
@@ -204,7 +204,7 @@ int main(int argc, char* argv[]) {
                                     base_in_idx + c + in_neighbor_offsets[2], 0,
                                     in_img_bytes - 1)],
                             };
-                            out_img_data.get()[base_out_idx + c] =
+                            out[base_out_idx + c] =
                                 mix(mix(val[0], val[1], offset_x),
                                     mix(val[2], val[3], offset_x), offset_y);
                         }
