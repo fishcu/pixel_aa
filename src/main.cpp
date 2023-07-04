@@ -105,46 +105,44 @@ int main(int argc, char* argv[]) {
 
     // Precompute interpolation weights
     constexpr float sharpness = 1.5f;
-    std::unique_ptr<int[]> in_x(new int[out_width]);
-    std::unique_ptr<int[]> in_y(new int[out_height]);
     std::unique_ptr<float[]> weights_x(new float[out_width]);
     std::unique_ptr<float[]> weights_y(new float[out_height]);
-    for (int x = 0; x < out_width; ++x) {
-        const float in = (x + 0.5f) * in_x_step - 0.5f;
-        in_x[x] = in;
-        const float phase = in - in_x[x];
+    float in_x = 0.5f * in_x_step - 0.5f;
+    for (int x = 0; x < out_width; ++x, in_x += in_x_step) {
+        // const float in_x = (x + 0.5f) * in_x_step - 0.5f;
+        const float phase = in_x - int(in_x);
         weights_x[x] =
             smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
     }
-    for (int y = 0; y < out_height; ++y) {
-        const float in = (y + 0.5f) * in_y_step - 0.5f;
-        in_y[y] = in;
-        const float phase = in - in_y[y];
+    float in_y = 0.5f * in_y_step - 0.5f;
+    for (int y = 0; y < out_height; ++y, in_y += in_y_step) {
+        // float in_y = (0.5f + y) * in_y_step - 0.5f;
+        const float phase = in_y - int(in_y);
         weights_y[y] =
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
     }
 
     // Measure performance
     const auto start = std::chrono::high_resolution_clock::now();
-    constexpr int num_perf_passes = 100;
+    constexpr int num_perf_passes = 500;
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
-        // float in_y = 0.5f * in_y_step - 0.5f;
-        for (int y = 0; y < out_height; ++y) {
+        float in_y = 0.5f * in_y_step - 0.5f;
+        for (int y = 0; y < out_height; ++y, in_y += in_y_step) {
             const int out_row_offset = y * out_width * channels;
 
-            const int in_row_offset = in_y[y] * in_width * channels;
+            const int in_row_offset = int(in_y) * in_width * channels;
             const float offset_y = weights_y[y];
 
-            // float in_x = 0.5f * in_x_step - 0.5f;
-            for (int x = 0; x < out_width; ++x) {
+            float in_x = 0.5f * in_x_step - 0.5f;
+            for (int x = 0; x < out_width; ++x, in_x += in_x_step) {
                 const float offset_x = weights_x[x];
 
                 // Calc. and write output pixel
                 // Do a bilinear sampling with branching for often-occuring 0
                 // and 1 weight samples.
-                const int base_in_idx = in_row_offset + in_x[x] * channels;
+                const int base_in_idx = in_row_offset + int(in_x) * channels;
                 const int base_out_idx = out_row_offset + x * channels;
                 if (offset_y < OFFSET_TOL || offset_y > 1.0f - OFFSET_TOL) {
                     const int extra_in_idx_offset =
@@ -212,9 +210,7 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
-                // in_x += in_x_step;
             }
-            // in_y += in_y_step;
         }
     }
 
