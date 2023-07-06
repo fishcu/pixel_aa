@@ -41,9 +41,8 @@ inline float mix(float x, float y, float a) { return x * (1.0 - a) + y * a; }
 
 #define OFFSET_TOL 1.0e-2f
 
-#define GET_CHANNEL(color, c) \
-    ((unsigned char)(((color) >> (8 * (2 - (c)))) & 0xFF))
-#define MAKE_COLOR(r, g, b)                                           \
+#define GET_CH(color, c) ((unsigned char)(((color) >> (8 * (2 - (c)))) & 0xFF))
+#define GET_COL(r, g, b)                                              \
     (((uint32_t)(r) << 16) | ((uint32_t)(g) << 8) | ((uint32_t)(b)) | \
      0xff << 24)
 
@@ -106,19 +105,17 @@ int main(int argc, char* argv[]) {
     const float in_y_step = static_cast<float>(in_height) / out_height;
 
     // Precompute interpolation weights
-    constexpr float sharpness = 1.5f;
+    // constexpr float sharpness = 1.5f;
     std::unique_ptr<float[]> weights_x(new float[out_width]);
     std::unique_ptr<float[]> weights_y(new float[out_height]);
     float in_x = 0.5f * in_x_step - 0.5f;
     for (int x = 0; x < out_width; ++x, in_x += in_x_step) {
-        // const float in_x = (x + 0.5f) * in_x_step - 0.5f;
         const float phase = in_x - int(in_x);
         weights_x[x] =
             smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
     }
     float in_y = 0.5f * in_y_step - 0.5f;
     for (int y = 0; y < out_height; ++y, in_y += in_y_step) {
-        // float in_y = (0.5f + y) * in_y_step - 0.5f;
         const float phase = in_y - int(in_y);
         weights_y[y] =
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
@@ -139,8 +136,9 @@ int main(int argc, char* argv[]) {
 
             float in_x = 0.5f * in_x_step - 0.5f;
 
-            // Keep 4 values relevant for interpolation in memory
-            uint32_t val[] = {
+            // Keep all values relevant for interpolation in memory
+            // and update them lazily.
+            uint32_t col[4] = {
                 in_img_data[clamp(in_row_offset, 0, in_img_size - 1)],
                 in_img_data[clamp(in_row_offset + 1, 0, in_img_size - 1)],
                 in_img_data[clamp(in_row_offset + in_width, 0,
@@ -156,17 +154,17 @@ int main(int argc, char* argv[]) {
                     // Only update samples that will be used on this row.
                     if (offset_y <= 1.0f - OFFSET_TOL) {
                         // Shift sample one to left.
-                        val[0] = val[1];
+                        col[0] = col[1];
                         // Sample new sample.
-                        val[1] =
+                        col[1] =
                             in_img_data[clamp(in_row_offset + in_sample_x + 1,
                                               0, in_img_size - 1)];
                     }
                     if (offset_y >= OFFSET_TOL) {
                         // Shift sample one to left.
-                        val[2] = val[3];
+                        col[2] = col[3];
                         // Sample new sample.
-                        val[3] = in_img_data[clamp(
+                        col[3] = in_img_data[clamp(
                             in_row_offset + in_width + in_sample_x + 1, 0,
                             in_img_size - 1)];
                     }
@@ -180,74 +178,66 @@ int main(int argc, char* argv[]) {
                 if (offset_y < OFFSET_TOL) {
                     if (offset_x < OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = val[0];
+                        out[out_idx] = col[0];
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = val[1];
+                        out[out_idx] = col[1];
                     } else {
                         // Need 2 samples, mix with offset_x
-                        out[out_idx] =
-                            MAKE_COLOR(mix(GET_CHANNEL(val[0], 0),
-                                           GET_CHANNEL(val[1], 0), offset_x),
-                                       mix(GET_CHANNEL(val[0], 1),
-                                           GET_CHANNEL(val[1], 1), offset_x),
-                                       mix(GET_CHANNEL(val[0], 2),
-                                           GET_CHANNEL(val[1], 2), offset_x));
+                        out[out_idx] = GET_COL(
+                            mix(GET_CH(col[0], 0), GET_CH(col[1], 0), offset_x),
+                            mix(GET_CH(col[0], 1), GET_CH(col[1], 1), offset_x),
+                            mix(GET_CH(col[0], 2), GET_CH(col[1], 2),
+                                offset_x));
                     }
                 } else if (offset_y > 1.0f - OFFSET_TOL) {
                     if (offset_x < OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = val[2];
+                        out[out_idx] = col[2];
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = val[3];
+                        out[out_idx] = col[3];
                     } else {
                         // Need 2 samples, mix with offset_x
-                        out[out_idx] =
-                            MAKE_COLOR(mix(GET_CHANNEL(val[2], 0),
-                                           GET_CHANNEL(val[3], 0), offset_x),
-                                       mix(GET_CHANNEL(val[2], 1),
-                                           GET_CHANNEL(val[3], 1), offset_x),
-                                       mix(GET_CHANNEL(val[2], 2),
-                                           GET_CHANNEL(val[3], 2), offset_x));
+                        out[out_idx] = GET_COL(
+                            mix(GET_CH(col[2], 0), GET_CH(col[3], 0), offset_x),
+                            mix(GET_CH(col[2], 1), GET_CH(col[3], 1), offset_x),
+                            mix(GET_CH(col[2], 2), GET_CH(col[3], 2),
+                                offset_x));
                     }
                 } else {
                     if (offset_x < OFFSET_TOL) {
                         // Need 2 samples, mix with offset_y
-                        out[out_idx] =
-                            MAKE_COLOR(mix(GET_CHANNEL(val[0], 0),
-                                           GET_CHANNEL(val[2], 0), offset_y),
-                                       mix(GET_CHANNEL(val[0], 1),
-                                           GET_CHANNEL(val[2], 1), offset_y),
-                                       mix(GET_CHANNEL(val[0], 2),
-                                           GET_CHANNEL(val[2], 2), offset_y));
+                        out[out_idx] = GET_COL(
+                            mix(GET_CH(col[0], 0), GET_CH(col[2], 0), offset_y),
+                            mix(GET_CH(col[0], 1), GET_CH(col[2], 1), offset_y),
+                            mix(GET_CH(col[0], 2), GET_CH(col[2], 2),
+                                offset_y));
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 2 samples, mix with offset_y
-                        out[out_idx] =
-                            MAKE_COLOR(mix(GET_CHANNEL(val[1], 0),
-                                           GET_CHANNEL(val[3], 0), offset_y),
-                                       mix(GET_CHANNEL(val[1], 1),
-                                           GET_CHANNEL(val[3], 1), offset_y),
-                                       mix(GET_CHANNEL(val[1], 2),
-                                           GET_CHANNEL(val[3], 2), offset_y));
+                        out[out_idx] = GET_COL(
+                            mix(GET_CH(col[1], 0), GET_CH(col[3], 0), offset_y),
+                            mix(GET_CH(col[1], 1), GET_CH(col[3], 1), offset_y),
+                            mix(GET_CH(col[1], 2), GET_CH(col[3], 2),
+                                offset_y));
                     } else {
                         // Need 4 samples, mix with offset_x and offset_y
-                        out[out_idx] = MAKE_COLOR(
-                            mix(mix(GET_CHANNEL(val[0], 0),
-                                    GET_CHANNEL(val[1], 0), offset_x),
-                                mix(GET_CHANNEL(val[2], 0),
-                                    GET_CHANNEL(val[3], 0), offset_x),
-                                offset_y),
-                            mix(mix(GET_CHANNEL(val[0], 1),
-                                    GET_CHANNEL(val[1], 1), offset_x),
-                                mix(GET_CHANNEL(val[2], 1),
-                                    GET_CHANNEL(val[3], 1), offset_x),
-                                offset_y),
-                            mix(mix(GET_CHANNEL(val[0], 2),
-                                    GET_CHANNEL(val[1], 2), offset_x),
-                                mix(GET_CHANNEL(val[2], 2),
-                                    GET_CHANNEL(val[3], 2), offset_x),
-                                offset_y));
+                        out[out_idx] =
+                            GET_COL(mix(mix(GET_CH(col[0], 0),
+                                            GET_CH(col[1], 0), offset_x),
+                                        mix(GET_CH(col[2], 0),
+                                            GET_CH(col[3], 0), offset_x),
+                                        offset_y),
+                                    mix(mix(GET_CH(col[0], 1),
+                                            GET_CH(col[1], 1), offset_x),
+                                        mix(GET_CH(col[2], 1),
+                                            GET_CH(col[3], 1), offset_x),
+                                        offset_y),
+                                    mix(mix(GET_CH(col[0], 2),
+                                            GET_CH(col[1], 2), offset_x),
+                                        mix(GET_CH(col[2], 2),
+                                            GET_CH(col[3], 2), offset_x),
+                                        offset_y));
                     }
                 }
             }
