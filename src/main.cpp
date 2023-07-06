@@ -140,31 +140,44 @@ int main(int argc, char* argv[]) {
             float in_x = 0.5f * in_x_step - 0.5f;
 
             // Keep 4 values relevant for interpolation in memory
-            // uint32_t val[4];
-            // int in_sample_x = 0;
+            uint32_t val[] = {
+                in_img_data[clamp(in_row_offset, 0, in_img_size - 1)],
+                in_img_data[clamp(in_row_offset + 1, 0, in_img_size - 1)],
+                in_img_data[clamp(in_row_offset + in_width, 0,
+                                  in_img_size - 1)],
+                in_img_data[clamp(in_row_offset + in_width + 1, 0,
+                                  in_img_size - 1)],
+            };
+            int in_sample_x = 0;
             for (int x = 0; x < out_width; ++x, in_x += in_x_step) {
-                const float offset_x = weights_x[x];
+                // Update samples when we've moved enough.
+                if (int(in_x) > in_sample_x) {
+                    in_sample_x = int(in_x);
+                    // Shift samples one to left.
+                    val[0] = val[1];
+                    val[2] = val[3];
+                    // Sample new samples.
+                    val[1] = in_img_data[clamp(in_row_offset + in_sample_x + 1,
+                                               0, in_img_size - 1)];
+                    val[3] = in_img_data[clamp(
+                        in_row_offset + in_width + in_sample_x + 1, 0,
+                        in_img_size - 1)];
+                }
 
                 // Calc. and write output pixel
                 // Do a bilinear sampling with branching for often-occuring 0
                 // and 1 weight samples.
-                const int base_in_idx = in_row_offset + int(in_x);
                 const int out_idx = out_row_offset + x;
+                const float offset_x = weights_x[x];
                 if (offset_y < OFFSET_TOL) {
                     if (offset_x < OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] =
-                            in_img_data[clamp(base_in_idx, 0, in_img_size - 1)];
+                        out[out_idx] = val[0];
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = in_img_data[clamp(base_in_idx + 1, 0,
-                                                         in_img_size - 1)];
+                        out[out_idx] = val[1];
                     } else {
                         // Need 2 samples, mix with offset_x
-                        const uint32_t val[] = {
-                            in_img_data[clamp(base_in_idx, 0, in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + 1, 0,
-                                              in_img_size - 1)]};
                         out[out_idx] =
                             MAKE_COLOR(mix(GET_CHANNEL(val[0], 0),
                                            GET_CHANNEL(val[1], 0), offset_x),
@@ -176,66 +189,41 @@ int main(int argc, char* argv[]) {
                 } else if (offset_y > 1.0f - OFFSET_TOL) {
                     if (offset_x < OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = in_img_data[clamp(base_in_idx + in_width,
-                                                         0, in_img_size - 1)];
+                        out[out_idx] = val[2];
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = in_img_data[clamp(
-                            base_in_idx + in_width + 1, 0, in_img_size - 1)];
+                        out[out_idx] = val[3];
                     } else {
                         // Need 2 samples, mix with offset_x
-                        const uint32_t val[] = {
-                            in_img_data[clamp(base_in_idx + in_width, 0,
-                                              in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + in_width + 1, 0,
-                                              in_img_size - 1)]};
                         out[out_idx] =
-                            MAKE_COLOR(mix(GET_CHANNEL(val[0], 0),
-                                           GET_CHANNEL(val[1], 0), offset_x),
-                                       mix(GET_CHANNEL(val[0], 1),
-                                           GET_CHANNEL(val[1], 1), offset_x),
-                                       mix(GET_CHANNEL(val[0], 2),
-                                           GET_CHANNEL(val[1], 2), offset_x));
+                            MAKE_COLOR(mix(GET_CHANNEL(val[2], 0),
+                                           GET_CHANNEL(val[3], 0), offset_x),
+                                       mix(GET_CHANNEL(val[2], 1),
+                                           GET_CHANNEL(val[3], 1), offset_x),
+                                       mix(GET_CHANNEL(val[2], 2),
+                                           GET_CHANNEL(val[3], 2), offset_x));
                     }
                 } else {
                     if (offset_x < OFFSET_TOL) {
                         // Need 2 samples, mix with offset_y
-                        const uint32_t val[] = {
-                            in_img_data[clamp(base_in_idx, 0, in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + in_width, 0,
-                                              in_img_size - 1)]};
                         out[out_idx] =
                             MAKE_COLOR(mix(GET_CHANNEL(val[0], 0),
-                                           GET_CHANNEL(val[1], 0), offset_y),
+                                           GET_CHANNEL(val[2], 0), offset_y),
                                        mix(GET_CHANNEL(val[0], 1),
-                                           GET_CHANNEL(val[1], 1), offset_y),
+                                           GET_CHANNEL(val[2], 1), offset_y),
                                        mix(GET_CHANNEL(val[0], 2),
-                                           GET_CHANNEL(val[1], 2), offset_y));
+                                           GET_CHANNEL(val[2], 2), offset_y));
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 2 samples, mix with offset_y
-                        const uint32_t val[] = {
-                            in_img_data[clamp(base_in_idx + 1, 0,
-                                              in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + 1 + in_width, 0,
-                                              in_img_size - 1)]};
                         out[out_idx] =
-                            MAKE_COLOR(mix(GET_CHANNEL(val[0], 0),
-                                           GET_CHANNEL(val[1], 0), offset_y),
-                                       mix(GET_CHANNEL(val[0], 1),
-                                           GET_CHANNEL(val[1], 1), offset_y),
-                                       mix(GET_CHANNEL(val[0], 2),
-                                           GET_CHANNEL(val[1], 2), offset_y));
+                            MAKE_COLOR(mix(GET_CHANNEL(val[1], 0),
+                                           GET_CHANNEL(val[3], 0), offset_y),
+                                       mix(GET_CHANNEL(val[1], 1),
+                                           GET_CHANNEL(val[3], 1), offset_y),
+                                       mix(GET_CHANNEL(val[1], 2),
+                                           GET_CHANNEL(val[3], 2), offset_y));
                     } else {
                         // Need 4 samples, mix with offset_x and offset_y
-                        const uint32_t val[] = {
-                            in_img_data[clamp(base_in_idx, 0, in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + 1, 0,
-                                              in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + in_width, 0,
-                                              in_img_size - 1)],
-                            in_img_data[clamp(base_in_idx + in_width + 1, 0,
-                                              in_img_size - 1)],
-                        };
                         out[out_idx] = MAKE_COLOR(
                             mix(mix(GET_CHANNEL(val[0], 0),
                                     GET_CHANNEL(val[1], 0), offset_x),
