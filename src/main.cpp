@@ -153,15 +153,23 @@ int main(int argc, char* argv[]) {
                 // Update samples when we've moved enough.
                 if (int(in_x) > in_sample_x) {
                     in_sample_x = int(in_x);
-                    // Shift samples one to left.
-                    val[0] = val[1];
-                    val[2] = val[3];
-                    // Sample new samples.
-                    val[1] = in_img_data[clamp(in_row_offset + in_sample_x + 1,
-                                               0, in_img_size - 1)];
-                    val[3] = in_img_data[clamp(
-                        in_row_offset + in_width + in_sample_x + 1, 0,
-                        in_img_size - 1)];
+                    // Only update samples that will be used on this row.
+                    if (offset_y <= 1.0f - OFFSET_TOL) {
+                        // Shift sample one to left.
+                        val[0] = val[1];
+                        // Sample new sample.
+                        val[1] =
+                            in_img_data[clamp(in_row_offset + in_sample_x + 1,
+                                              0, in_img_size - 1)];
+                    }
+                    if (offset_y >= OFFSET_TOL) {
+                        // Shift sample one to left.
+                        val[2] = val[3];
+                        // Sample new sample.
+                        val[3] = in_img_data[clamp(
+                            in_row_offset + in_width + in_sample_x + 1, 0,
+                            in_img_size - 1)];
+                    }
                 }
 
                 // Calc. and write output pixel
