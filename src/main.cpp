@@ -149,17 +149,37 @@ int main(int argc, char* argv[]) {
             const int in_row_offset = int(in_y) * in_width;
             const float offset_y = weights_y[y];
 
-            float in_x = (x_border + 0.5f) * in_x_step - 0.5f;
+            // Left border
+            uint32_t col;
+            if (offset_y < OFFSET_TOL) {
+                col = in_img_data[in_row_offset];
+            } else if (offset_y > 1.0f - OFFSET_TOL) {
+                col = in_img_data[in_row_offset + in_width];
+            } else {
+                col = GET_COL(
+                    mix(GET_CH(in_img_data[in_row_offset], 0),
+                        GET_CH(in_img_data[in_row_offset + in_width], 0),
+                        offset_y),
+                    mix(GET_CH(in_img_data[in_row_offset], 1),
+                        GET_CH(in_img_data[in_row_offset + in_width], 1),
+                        offset_y),
+                    mix(GET_CH(in_img_data[in_row_offset], 2),
+                        GET_CH(in_img_data[in_row_offset + in_width], 2),
+                        offset_y));
+            }
+            for (int x = 0; x < x_border; ++x) {
+                out[out_row_offset + x] = col;
+            }
 
             // Keep all values relevant for interpolation in memory
             // and update them lazily.
+            float in_x = (x_border + 0.5f) * in_x_step - 0.5f;
             int in_sample_x = int(in_x);
             uint32_t* in_ptr[4] = {
                 in_img_data + in_row_offset + in_sample_x,
                 in_img_data + in_row_offset + in_sample_x + 1,
                 in_img_data + in_row_offset + in_width + in_sample_x,
                 in_img_data + in_row_offset + in_width + in_sample_x + 1};
-            
             for (int x = x_border; x < out_width - x_border;
                  ++x, in_x += in_x_step) {
                 // Update samples when we've moved enough.
@@ -249,6 +269,30 @@ int main(int argc, char* argv[]) {
                                         offset_y));
                     }
                 }
+            }
+
+            // Right border
+            if (offset_y < OFFSET_TOL) {
+                col = in_img_data[in_row_offset + in_width - 1];
+            } else if (offset_y > 1.0f - OFFSET_TOL) {
+                col = in_img_data[in_row_offset + 2 * in_width - 1];
+            } else {
+                col = GET_COL(
+                    mix(GET_CH(in_img_data[in_row_offset + in_width - 1], 0),
+                        GET_CH(in_img_data[in_row_offset + 2 * in_width - 1],
+                               0),
+                        offset_y),
+                    mix(GET_CH(in_img_data[in_row_offset + in_width - 1], 1),
+                        GET_CH(in_img_data[in_row_offset + 2 * in_width - 1],
+                               1),
+                        offset_y),
+                    mix(GET_CH(in_img_data[in_row_offset + in_width - 1], 2),
+                        GET_CH(in_img_data[in_row_offset + 2 * in_width - 1],
+                               2),
+                        offset_y));
+            }
+            for (int x = out_width - x_border; x < out_width; ++x) {
+                out[out_row_offset + x] = col;
             }
         }
     }
