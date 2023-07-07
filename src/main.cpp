@@ -4,24 +4,10 @@
 #include <memory>
 #include <string>
 
-// #include "glm/glm.hpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
-
-// using namespace glm;
-
-template <typename T>
-inline T clamp(T value, T min, T max) {
-    if (value < min) {
-        return min;
-    } else if (value > max) {
-        return max;
-    } else {
-        return value;
-    }
-}
 
 inline float sign(float value) {
     if (value < 0.0f) {
@@ -52,7 +38,7 @@ float smoothstep(float edge0, float edge1, float x) {
 }
 
 float slopestep(float edge0, float edge1, float x, float slope) {
-    x = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    x = fmaxf(0.0, fminf(1.0, (x - edge0) / (edge1 - edge0)));
     const float s = sign(x - 0.5f);
     const float o = (1.0f + s) * 0.5f;
     return o - 0.5f * s * pow(2.0f * (o - s * x), slope);
@@ -117,7 +103,6 @@ int main(int argc, char* argv[]) {
     const int x_border = out_width >= in_width ? out_width / in_width - 1 : 0;
     const int y_border =
         out_height >= in_height ? out_height / in_height - 1 : 0;
-
     // Precompute interpolation weights
     // constexpr float sharpness = 1.5f;
     std::unique_ptr<float[]> weights_x(new float[out_width]);
@@ -135,6 +120,9 @@ int main(int argc, char* argv[]) {
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
     }
 
+    // Temp. memory
+    uint32_t col;
+
     // Measure performance
     const auto start = std::chrono::high_resolution_clock::now();
     constexpr int num_perf_passes = 500;
@@ -150,7 +138,6 @@ int main(int argc, char* argv[]) {
             const float offset_y = weights_y[y];
 
             // Left border
-            uint32_t col;
             if (offset_y < OFFSET_TOL) {
                 col = in_img_data[in_row_offset];
             } else if (offset_y > 1.0f - OFFSET_TOL) {
