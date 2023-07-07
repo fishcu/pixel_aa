@@ -5,6 +5,7 @@ project(${PROJECT_NAME})
 option(BUILD_FOR_MM "Enable build for Miyoo Mini" OFF)
 
 if (BUILD_FOR_MM)
+    message(STATUS "Building for MM, cross compile var is $(CROSS_COMPILE)") 
     set(CMAKE_C_COMPILER "$(CROSS_COMPILE)gcc")
     set(CMAKE_CXX_COMPILER "$(CROSS_COMPILE)g++")
 endif()
