@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include "omp.h"
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -113,31 +115,29 @@ int main(int argc, char* argv[]) {
         weights_x[x] =
             smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
     }
-    float in_y = 0.5f * in_y_step - 0.5f;
-    for (int y = 0; y < out_height; ++y, in_y += in_y_step) {
+    for (int y = 0; y < out_height; ++y) {
+        const float in_y = (y + 0.5f) * in_y_step - 0.5f;
         const float phase = in_y - int(in_y);
         weights_y[y] =
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
-    }
-
-    // Temp. memory
-    uint32_t col;
+    }    
 
     // Measure performance
     const auto start = std::chrono::high_resolution_clock::now();
-    constexpr int num_perf_passes = 500;
+    constexpr int num_perf_passes = 2000;
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
-        float in_y = (y_border + 0.5f) * in_y_step - 0.5f;
-        for (int y = y_border; y < out_height - y_border;
-             ++y, in_y += in_y_step) {
+#pragma omp parallel for
+        for (int y = y_border; y < out_height - y_border; ++y) {
+            const float in_y = (y + 0.5f) * in_y_step - 0.5f;
             const int out_row_offset = y * out_width;
 
             const int in_row_offset = int(in_y) * in_width;
             const float offset_y = weights_y[y];
 
             // Left border
+            uint32_t col;
             if (offset_y < OFFSET_TOL) {
                 col = in_img_data[in_row_offset];
             } else if (offset_y > 1.0f - OFFSET_TOL) {
