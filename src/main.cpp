@@ -102,8 +102,8 @@ int main(int argc, char* argv[]) {
     =>
     x >= 1 / s - 1
     */
-    const int x_border = out_width >= in_width ? out_width / in_width - 1 : 0;
-    const int y_border =
+    const int border_x = out_width >= in_width ? out_width / in_width - 1 : 0;
+    const int border_y =
         out_height >= in_height ? out_height / in_height - 1 : 0;
     // Precompute interpolation weights
     // constexpr float sharpness = 1.5f;
@@ -120,23 +120,72 @@ int main(int argc, char* argv[]) {
         const float phase = in_y - int(in_y);
         weights_y[y] =
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
-    }    
+    }
 
     // Measure performance
     const auto start = std::chrono::high_resolution_clock::now();
-    constexpr int num_perf_passes = 2000;
+    constexpr int num_perf_passes = 1000;
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
-#pragma omp parallel for
-        for (int y = y_border; y < out_height - y_border; ++y) {
-            const float in_y = (y + 0.5f) * in_y_step - 0.5f;
+        // Top border, offset_y is effectively = 0
+        for (int y = 0; y < border_y; ++y) {
             const int out_row_offset = y * out_width;
 
+            // Top left corner, offset_x = 0
+            for (int x = 0; x < border_x; ++x) {
+                out[out_row_offset + x] = in_img_data[0];
+            }
+
+            // Middle part of top bar
+            float in_x = (border_x + 0.5f) * in_x_step - 0.5f;
+            int in_sample_x = int(in_x);
+            uint32_t* in_ptr[2] = {in_img_data + in_sample_x,
+                                   in_img_data + in_sample_x + 1};
+            for (int x = border_x; x < out_width - border_x;
+                 ++x, in_x += in_x_step) {
+                // Update samples when we've moved enough.
+                if (int(in_x) > in_sample_x) {
+                    in_sample_x = int(in_x);
+                    // Shift samples one to right.
+                    ++in_ptr[0];
+                    ++in_ptr[1];
+                }
+
+                const float offset_x = weights_x[x];
+                if (offset_x < OFFSET_TOL) {
+                    // Need 1 sample, no mixing
+                    out[out_row_offset + x] = *in_ptr[0];
+                } else if (offset_x > 1.0f - OFFSET_TOL) {
+                    // Need 1 sample, no mixing
+                    out[out_row_offset + x] = *in_ptr[1];
+                } else {
+                    // Need 2 samples, mix with offset_x
+                    out[out_row_offset + x] =
+                        GET_COL(mix(GET_CH(*in_ptr[0], 0),
+                                    GET_CH(*in_ptr[1], 0), offset_x),
+                                mix(GET_CH(*in_ptr[0], 1),
+                                    GET_CH(*in_ptr[1], 1), offset_x),
+                                mix(GET_CH(*in_ptr[0], 2),
+                                    GET_CH(*in_ptr[1], 2), offset_x));
+                }
+            }
+
+            // Top right corner, offset_x = 1
+            for (int x = out_width - border_x; x < out_width; ++x) {
+                out[out_row_offset + x] = in_img_data[in_width - 1];
+            }
+        }
+
+        // #pragma omp parallel for
+        for (int y = border_y; y < out_height - border_y; ++y) {
+            const int out_row_offset = y * out_width;
+            const float in_y = (y + 0.5f) * in_y_step - 0.5f;
             const int in_row_offset = int(in_y) * in_width;
+
             const float offset_y = weights_y[y];
 
-            // Left border
+            // Left border, offset_x = 0
             uint32_t col;
             if (offset_y < OFFSET_TOL) {
                 col = in_img_data[in_row_offset];
@@ -154,20 +203,21 @@ int main(int argc, char* argv[]) {
                         GET_CH(in_img_data[in_row_offset + in_width], 2),
                         offset_y));
             }
-            for (int x = 0; x < x_border; ++x) {
+            for (int x = 0; x < border_x; ++x) {
                 out[out_row_offset + x] = col;
             }
 
             // Keep all values relevant for interpolation in memory
             // and update them lazily.
-            float in_x = (x_border + 0.5f) * in_x_step - 0.5f;
+            float in_x = (border_x + 0.5f) * in_x_step - 0.5f;
             int in_sample_x = int(in_x);
             uint32_t* in_ptr[4] = {
                 in_img_data + in_row_offset + in_sample_x,
                 in_img_data + in_row_offset + in_sample_x + 1,
                 in_img_data + in_row_offset + in_width + in_sample_x,
                 in_img_data + in_row_offset + in_width + in_sample_x + 1};
-            for (int x = x_border; x < out_width - x_border;
+            // Center part of image
+            for (int x = border_x; x < out_width - border_x;
                  ++x, in_x += in_x_step) {
                 // Update samples when we've moved enough.
                 if (int(in_x) > in_sample_x) {
@@ -258,7 +308,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Right border
+            // Right border, offset_x = 1
             if (offset_y < OFFSET_TOL) {
                 col = in_img_data[in_row_offset + in_width - 1];
             } else if (offset_y > 1.0f - OFFSET_TOL) {
@@ -278,8 +328,60 @@ int main(int argc, char* argv[]) {
                                2),
                         offset_y));
             }
-            for (int x = out_width - x_border; x < out_width; ++x) {
+            for (int x = out_width - border_x; x < out_width; ++x) {
                 out[out_row_offset + x] = col;
+            }
+        }
+
+        // Bottom border, offset_y is effectively = 1
+        for (int y = out_height - border_y; y < out_height; ++y) {
+            const int out_row_offset = y * out_width;
+            const int in_row_offset = (in_height - 1) * in_width;
+
+            // Bottom left corner, offset_x = 0
+            for (int x = 0; x < border_x; ++x) {
+                out[out_row_offset + x] = in_img_data[in_row_offset];
+            }
+
+            // Middle part of top bar
+            float in_x = (border_x + 0.5f) * in_x_step - 0.5f;
+            int in_sample_x = int(in_x);
+            uint32_t* in_ptr[2] = {
+                in_img_data + in_row_offset + in_sample_x,
+                in_img_data + in_row_offset + in_sample_x + 1};
+            for (int x = border_x; x < out_width - border_x;
+                 ++x, in_x += in_x_step) {
+                // Update samples when we've moved enough.
+                if (int(in_x) > in_sample_x) {
+                    in_sample_x = int(in_x);
+                    // Shift samples one to right.
+                    ++in_ptr[0];
+                    ++in_ptr[1];
+                }
+
+                const float offset_x = weights_x[x];
+                if (offset_x < OFFSET_TOL) {
+                    // Need 1 sample, no mixing
+                    out[out_row_offset + x] = *in_ptr[0];
+                } else if (offset_x > 1.0f - OFFSET_TOL) {
+                    // Need 1 sample, no mixing
+                    out[out_row_offset + x] = *in_ptr[1];
+                } else {
+                    // Need 2 samples, mix with offset_x
+                    out[out_row_offset + x] =
+                        GET_COL(mix(GET_CH(*in_ptr[0], 0),
+                                    GET_CH(*in_ptr[1], 0), offset_x),
+                                mix(GET_CH(*in_ptr[0], 1),
+                                    GET_CH(*in_ptr[1], 1), offset_x),
+                                mix(GET_CH(*in_ptr[0], 2),
+                                    GET_CH(*in_ptr[1], 2), offset_x));
+                }
+            }
+
+            // Bottom right corner, offset_x = 1
+            for (int x = out_width - border_x; x < out_width; ++x) {
+                out[out_row_offset + x] =
+                    in_img_data[in_row_offset + in_width - 1];
             }
         }
     }
