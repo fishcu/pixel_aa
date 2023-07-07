@@ -21,7 +21,7 @@ inline float sign(float value) {
     }
 }
 
-inline float mix(float x, float y, float a) { return x * (1.0 - a) + y * a; }
+inline float mix(float x, float y, float a) { return x + a * (y - x); }
 
 // vec3 to_lin(vec3 x) { return pow(x, vec3(2.2)); }
 
@@ -177,7 +177,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // #pragma omp parallel for
+// #pragma omp parallel for
         for (int y = border_y; y < out_height - border_y; ++y) {
             const int out_row_offset = y * out_width;
             const float in_y = (y + 0.5f) * in_y_step - 0.5f;
