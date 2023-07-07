@@ -177,7 +177,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-// #pragma omp parallel for
+        // #pragma omp parallel for
         for (int y = border_y; y < out_height - border_y; ++y) {
             const int out_row_offset = y * out_width;
             const float in_y = (y + 0.5f) * in_y_step - 0.5f;
