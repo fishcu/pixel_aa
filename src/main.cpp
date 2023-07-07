@@ -80,7 +80,6 @@ int main(int argc, char* argv[]) {
     }
     channels = 4;
     uint32_t* in_img_data = reinterpret_cast<uint32_t*>(in_img_data_uchar);
-    const int in_img_size = in_width * in_height;
 
     printf("Image loaded successfully.\n");
     printf("Image width: %d\n", in_width);
@@ -103,6 +102,21 @@ int main(int argc, char* argv[]) {
     // Stuff that's constant over the whole image
     const float in_x_step = static_cast<float>(in_width) / out_width;
     const float in_y_step = static_cast<float>(in_height) / out_height;
+    // Iteration limits: For the first and last N pixels in each row and column,
+    // we don't need to interpolate as we simply sample the border pixel from
+    // the input image. This not just saves computations, but also allows us to
+    // drop boundary checks throughout the sampling.
+    // Derivation:
+    /*
+    in_x >= pixel transition start
+    in_x >= 0.5f - in_x_step * 0.5f
+    (0.5 + x) * s - 0.5 >= 0.5 - s * 0.5
+    =>
+    x >= 1 / s - 1
+    */
+    const int x_border = out_width >= in_width ? out_width / in_width - 1 : 0;
+    const int y_border =
+        out_height >= in_height ? out_height / in_height - 1 : 0;
 
     // Precompute interpolation weights
     // constexpr float sharpness = 1.5f;
@@ -127,116 +141,111 @@ int main(int argc, char* argv[]) {
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
-        float in_y = 0.5f * in_y_step - 0.5f;
-        for (int y = 0; y < out_height; ++y, in_y += in_y_step) {
+        float in_y = (y_border + 0.5f) * in_y_step - 0.5f;
+        for (int y = y_border; y < out_height - y_border;
+             ++y, in_y += in_y_step) {
             const int out_row_offset = y * out_width;
 
             const int in_row_offset = int(in_y) * in_width;
             const float offset_y = weights_y[y];
 
-            float in_x = 0.5f * in_x_step - 0.5f;
+            float in_x = (x_border + 0.5f) * in_x_step - 0.5f;
 
             // Keep all values relevant for interpolation in memory
             // and update them lazily.
-            uint32_t col[4] = {
-                in_img_data[clamp(in_row_offset, 0, in_img_size - 1)],
-                in_img_data[clamp(in_row_offset + 1, 0, in_img_size - 1)],
-                in_img_data[clamp(in_row_offset + in_width, 0,
-                                  in_img_size - 1)],
-                in_img_data[clamp(in_row_offset + in_width + 1, 0,
-                                  in_img_size - 1)],
-            };
-            int in_sample_x = 0;
-            for (int x = 0; x < out_width; ++x, in_x += in_x_step) {
+            int in_sample_x = int(in_x);
+            uint32_t* in_ptr[4] = {
+                in_img_data + in_row_offset + in_sample_x,
+                in_img_data + in_row_offset + in_sample_x + 1,
+                in_img_data + in_row_offset + in_width + in_sample_x,
+                in_img_data + in_row_offset + in_width + in_sample_x + 1};
+            
+            for (int x = x_border; x < out_width - x_border;
+                 ++x, in_x += in_x_step) {
                 // Update samples when we've moved enough.
                 if (int(in_x) > in_sample_x) {
                     in_sample_x = int(in_x);
-                    // Only update samples that will be used on this row.
-                    if (offset_y <= 1.0f - OFFSET_TOL) {
-                        // Shift sample one to left.
-                        col[0] = col[1];
-                        // Sample new sample.
-                        col[1] =
-                            in_img_data[clamp(in_row_offset + in_sample_x + 1,
-                                              0, in_img_size - 1)];
-                    }
-                    if (offset_y >= OFFSET_TOL) {
-                        // Shift sample one to left.
-                        col[2] = col[3];
-                        // Sample new sample.
-                        col[3] = in_img_data[clamp(
-                            in_row_offset + in_width + in_sample_x + 1, 0,
-                            in_img_size - 1)];
-                    }
+                    // Shift samples one to right.
+                    ++in_ptr[0];
+                    ++in_ptr[1];
+                    ++in_ptr[2];
+                    ++in_ptr[3];
                 }
 
                 // Calc. and write output pixel
                 // Do a bilinear sampling with branching for often-occuring 0
                 // and 1 weight samples.
-                const int out_idx = out_row_offset + x;
                 const float offset_x = weights_x[x];
                 if (offset_y < OFFSET_TOL) {
                     if (offset_x < OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = col[0];
+                        out[out_row_offset + x] = *in_ptr[0];
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = col[1];
+                        out[out_row_offset + x] = *in_ptr[1];
                     } else {
                         // Need 2 samples, mix with offset_x
-                        out[out_idx] = GET_COL(
-                            mix(GET_CH(col[0], 0), GET_CH(col[1], 0), offset_x),
-                            mix(GET_CH(col[0], 1), GET_CH(col[1], 1), offset_x),
-                            mix(GET_CH(col[0], 2), GET_CH(col[1], 2),
-                                offset_x));
+                        out[out_row_offset + x] =
+                            GET_COL(mix(GET_CH(*in_ptr[0], 0),
+                                        GET_CH(*in_ptr[1], 0), offset_x),
+                                    mix(GET_CH(*in_ptr[0], 1),
+                                        GET_CH(*in_ptr[1], 1), offset_x),
+                                    mix(GET_CH(*in_ptr[0], 2),
+                                        GET_CH(*in_ptr[1], 2), offset_x));
                     }
                 } else if (offset_y > 1.0f - OFFSET_TOL) {
                     if (offset_x < OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = col[2];
+                        out[out_row_offset + x] = *in_ptr[2];
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 1 sample, no mixing
-                        out[out_idx] = col[3];
+                        out[out_row_offset + x] = *in_ptr[3];
                     } else {
                         // Need 2 samples, mix with offset_x
-                        out[out_idx] = GET_COL(
-                            mix(GET_CH(col[2], 0), GET_CH(col[3], 0), offset_x),
-                            mix(GET_CH(col[2], 1), GET_CH(col[3], 1), offset_x),
-                            mix(GET_CH(col[2], 2), GET_CH(col[3], 2),
-                                offset_x));
+                        out[out_row_offset + x] =
+                            GET_COL(mix(GET_CH(*in_ptr[2], 0),
+                                        GET_CH(*in_ptr[3], 0), offset_x),
+                                    mix(GET_CH(*in_ptr[2], 1),
+                                        GET_CH(*in_ptr[3], 1), offset_x),
+                                    mix(GET_CH(*in_ptr[2], 2),
+                                        GET_CH(*in_ptr[3], 2), offset_x));
                     }
                 } else {
                     if (offset_x < OFFSET_TOL) {
                         // Need 2 samples, mix with offset_y
-                        out[out_idx] = GET_COL(
-                            mix(GET_CH(col[0], 0), GET_CH(col[2], 0), offset_y),
-                            mix(GET_CH(col[0], 1), GET_CH(col[2], 1), offset_y),
-                            mix(GET_CH(col[0], 2), GET_CH(col[2], 2),
-                                offset_y));
+                        out[out_row_offset + x] =
+                            GET_COL(mix(GET_CH(*in_ptr[0], 0),
+                                        GET_CH(*in_ptr[2], 0), offset_y),
+                                    mix(GET_CH(*in_ptr[0], 1),
+                                        GET_CH(*in_ptr[2], 1), offset_y),
+                                    mix(GET_CH(*in_ptr[0], 2),
+                                        GET_CH(*in_ptr[2], 2), offset_y));
                     } else if (offset_x > 1.0f - OFFSET_TOL) {
                         // Need 2 samples, mix with offset_y
-                        out[out_idx] = GET_COL(
-                            mix(GET_CH(col[1], 0), GET_CH(col[3], 0), offset_y),
-                            mix(GET_CH(col[1], 1), GET_CH(col[3], 1), offset_y),
-                            mix(GET_CH(col[1], 2), GET_CH(col[3], 2),
-                                offset_y));
+                        out[out_row_offset + x] =
+                            GET_COL(mix(GET_CH(*in_ptr[1], 0),
+                                        GET_CH(*in_ptr[3], 0), offset_y),
+                                    mix(GET_CH(*in_ptr[1], 1),
+                                        GET_CH(*in_ptr[3], 1), offset_y),
+                                    mix(GET_CH(*in_ptr[1], 2),
+                                        GET_CH(*in_ptr[3], 2), offset_y));
                     } else {
                         // Need 4 samples, mix with offset_x and offset_y
-                        out[out_idx] =
-                            GET_COL(mix(mix(GET_CH(col[0], 0),
-                                            GET_CH(col[1], 0), offset_x),
-                                        mix(GET_CH(col[2], 0),
-                                            GET_CH(col[3], 0), offset_x),
+                        out[out_row_offset + x] =
+                            GET_COL(mix(mix(GET_CH(*in_ptr[0], 0),
+                                            GET_CH(*in_ptr[1], 0), offset_x),
+                                        mix(GET_CH(*in_ptr[2], 0),
+                                            GET_CH(*in_ptr[3], 0), offset_x),
                                         offset_y),
-                                    mix(mix(GET_CH(col[0], 1),
-                                            GET_CH(col[1], 1), offset_x),
-                                        mix(GET_CH(col[2], 1),
-                                            GET_CH(col[3], 1), offset_x),
+                                    mix(mix(GET_CH(*in_ptr[0], 1),
+                                            GET_CH(*in_ptr[1], 1), offset_x),
+                                        mix(GET_CH(*in_ptr[2], 1),
+                                            GET_CH(*in_ptr[3], 1), offset_x),
                                         offset_y),
-                                    mix(mix(GET_CH(col[0], 2),
-                                            GET_CH(col[1], 2), offset_x),
-                                        mix(GET_CH(col[2], 2),
-                                            GET_CH(col[3], 2), offset_x),
+                                    mix(mix(GET_CH(*in_ptr[0], 2),
+                                            GET_CH(*in_ptr[1], 2), offset_x),
+                                        mix(GET_CH(*in_ptr[2], 2),
+                                            GET_CH(*in_ptr[3], 2), offset_x),
                                         offset_y));
                     }
                 }
