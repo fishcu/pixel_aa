@@ -11,9 +11,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#define FIXED_POINT
-#define FIXED_POINT_BITS 7
-typedef uint8_t fixed_point_t;
+// We need a data type that's at least 8 bits bigger than
+// FIXED_POINT_BITS to handle multiplication with uchar and not overflow.
+// We need a signed fixed point type to deal with mix operation containing a
+// difference operation.
+// #define FIXED_POINT
+#define FIXED_POINT_BITS 8
+typedef int16_t fixed_point_t;
 
 inline fixed_point_t float_to_fixed(float value) {
     return static_cast<fixed_point_t>(value * (1 << FIXED_POINT_BITS));
@@ -30,8 +34,8 @@ inline float sign(float value) {
 }
 
 #ifdef FIXED_POINT
-inline unsigned char mix(unsigned char x, unsigned char y, fixed_point_t a) {
-    return x + ((a * (int16_t(y) - int16_t(x))) >> FIXED_POINT_BITS);
+inline fixed_point_t mix(fixed_point_t x, fixed_point_t y, fixed_point_t a) {
+    return x + ((a * (y - x)) >> FIXED_POINT_BITS);
 }
 #else
 inline float mix(float x, float y, float a) { return x + a * (y - x); }
@@ -52,7 +56,7 @@ inline float mix(float x, float y, float a) { return x + a * (y - x); }
 #define GET_CH(color, c) (((color) >> (8 * (2 - (c)))) & 0xFF)
 #define GET_COL(r, g, b)                                              \
     (((uint32_t)(r) << 16) | ((uint32_t)(g) << 8) | ((uint32_t)(b)) | \
-     0xff << 24)
+     0xFF << 24)
 
 float smoothstep(float edge0, float edge1, float x) {
     float t = fmaxf(0.0, fminf(1.0, (x - edge0) / (edge1 - edge0)));
