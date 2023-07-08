@@ -5,9 +5,9 @@ project(${PROJECT_NAME})
 option(BUILD_FOR_MM "Enable build for Miyoo Mini" OFF)
 
 if (BUILD_FOR_MM)
-    message(STATUS "Building for MM, cross compile var is $(CROSS_COMPILE)") 
-    set(CMAKE_C_COMPILER "$(CROSS_COMPILE)gcc")
-    set(CMAKE_CXX_COMPILER "$(CROSS_COMPILE)g++")
+    message(STATUS "Building for MM, cross compile var is $ENV{CROSS_COMPILE}") 
+    set(CMAKE_C_COMPILER "$ENV{CROSS_COMPILE}gcc")
+    set(CMAKE_CXX_COMPILER "$ENV{CROSS_COMPILE}g++")
 endif()
 
 find_package(OpenMP)
@@ -32,7 +32,16 @@ if (BUILD_FOR_MM)
         "-finline-functions"
         "-funroll-loops"
         "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
-        "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+        #"-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+        "-fopenmp"
+    )
+    target_link_options(${PROJECT_NAME}
+        PRIVATE
+        "-fopenmp"
+    )
+    target_compile_definitions(${PROJECT_NAME}
+        PRIVATE
+        "FIXED_POINT"
     )
 else()
     target_compile_options(${PROJECT_NAME}
@@ -44,7 +53,7 @@ else()
         "-finline-functions"
         "-funroll-loops"
     )
-endif()
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
+    endif()
 endif()
