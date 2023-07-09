@@ -250,166 +250,187 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // #pragma omp parallel for
-        for (int y = border_y,
-                 in_y_error = in_height / 2 - out_height / 2 - out_height +
-                              in_height * border_y,
-                 in_row_offset = 0;
-             y < out_height - border_y; ++y, in_y_error += in_height) {
-            const int out_row_offset = y * out_width;
+#pragma omp parallel
+        {
+            int num_threads = omp_get_num_threads();
+            int thread_num = omp_get_thread_num();
+            int start_y = border_y + (out_height - border_y - border_y) *
+                                         thread_num / num_threads;
+            int end_y = border_y + (out_height - border_y - border_y) *
+                                       (thread_num + 1) / num_threads;
 
-            // Shift input row when we've moved enough.
-            if (in_y_error >= 0) {
-                in_y_error -= out_height;
-                in_row_offset += in_width;
-            }
+            int in_y_error = ((in_height / 2 - out_height / 2 - out_height +
+                               start_y * in_height + out_height) %
+                              out_height) -
+                             out_height;
 
-            const auto offset_y = weights_y[y];
-
-            // Left border, offset_x = 0
-            uint32_t col;
-            if (offset_y < OFFSET_TOL) {
-                col = in_img_data[in_row_offset];
-            } else if (offset_y > OFFSET_TOL_UPPER) {
-                col = in_img_data[in_row_offset + in_width];
-            } else {
-                col = GET_COL(
-                    mix(GET_CH(in_img_data[in_row_offset], 0),
-                        GET_CH(in_img_data[in_row_offset + in_width], 0),
-                        offset_y),
-                    mix(GET_CH(in_img_data[in_row_offset], 1),
-                        GET_CH(in_img_data[in_row_offset + in_width], 1),
-                        offset_y),
-                    mix(GET_CH(in_img_data[in_row_offset], 2),
-                        GET_CH(in_img_data[in_row_offset + in_width], 2),
-                        offset_y));
-            }
-            for (int x = 0; x < border_x; ++x) {
-                out[out_row_offset + x] = col;
-            }
-
-            // Keep all values relevant for interpolation in memory
-            // and update them lazily.
-            int in_x_error =
-                in_width / 2 - out_width / 2 - out_width + in_width * border_x;
-            uint32_t* in_ptr[4] = {in_img_data + in_row_offset,
-                                   in_img_data + in_row_offset + 1,
-                                   in_img_data + in_row_offset + in_width,
-                                   in_img_data + in_row_offset + in_width + 1};
-            // Center part of image
-            for (int x = border_x; x < out_width - border_x;
-                 ++x, in_x_error += in_width) {
-                // Update samples when we've moved enough.
-                if (in_x_error >= 0) {
-                    in_x_error -= out_width;
-                    // Shift samples one to right.
-                    ++in_ptr[0];
-                    ++in_ptr[1];
-                    ++in_ptr[2];
-                    ++in_ptr[3];
+            int in_start_y = (start_y * in_height + in_height / 2);
+            in_start_y = in_start_y / out_height -
+                         (in_start_y % out_height < out_height / 2 ? 1 : 0);
+            int in_row_offset = in_start_y * in_width;
+            for (int y = start_y; y < end_y; ++y, in_y_error += in_height) {
+                // Shift input row when we've moved enough.
+                if (in_y_error >= 0) {
+                    in_y_error -= out_height;
+                    in_row_offset += in_width;
                 }
 
-                // Calc. and write output pixel
-                // Do a bilinear sampling with branching for often-occuring 0
-                // and 1 weight samples.
-                const auto offset_x = weights_x[x];
+                const int out_row_offset = y * out_width;
+
+                const auto offset_y = weights_y[y];
+
+                // Left border, offset_x = 0
+                uint32_t col;
                 if (offset_y < OFFSET_TOL) {
-                    if (offset_x < OFFSET_TOL) {
-                        // Need 1 sample, no mixing
-                        out[out_row_offset + x] = *in_ptr[0];
-                    } else if (offset_x > OFFSET_TOL_UPPER) {
-                        // Need 1 sample, no mixing
-                        out[out_row_offset + x] = *in_ptr[1];
-                    } else {
-                        // Need 2 samples, mix with offset_x
-                        out[out_row_offset + x] =
-                            GET_COL(mix(GET_CH(*in_ptr[0], 0),
-                                        GET_CH(*in_ptr[1], 0), offset_x),
-                                    mix(GET_CH(*in_ptr[0], 1),
-                                        GET_CH(*in_ptr[1], 1), offset_x),
-                                    mix(GET_CH(*in_ptr[0], 2),
-                                        GET_CH(*in_ptr[1], 2), offset_x));
-                    }
+                    col = in_img_data[in_row_offset];
                 } else if (offset_y > OFFSET_TOL_UPPER) {
-                    if (offset_x < OFFSET_TOL) {
-                        // Need 1 sample, no mixing
-                        out[out_row_offset + x] = *in_ptr[2];
-                    } else if (offset_x > OFFSET_TOL_UPPER) {
-                        // Need 1 sample, no mixing
-                        out[out_row_offset + x] = *in_ptr[3];
-                    } else {
-                        // Need 2 samples, mix with offset_x
-                        out[out_row_offset + x] =
-                            GET_COL(mix(GET_CH(*in_ptr[2], 0),
-                                        GET_CH(*in_ptr[3], 0), offset_x),
-                                    mix(GET_CH(*in_ptr[2], 1),
-                                        GET_CH(*in_ptr[3], 1), offset_x),
-                                    mix(GET_CH(*in_ptr[2], 2),
-                                        GET_CH(*in_ptr[3], 2), offset_x));
-                    }
+                    col = in_img_data[in_row_offset + in_width];
                 } else {
-                    if (offset_x < OFFSET_TOL) {
-                        // Need 2 samples, mix with offset_y
-                        out[out_row_offset + x] =
-                            GET_COL(mix(GET_CH(*in_ptr[0], 0),
-                                        GET_CH(*in_ptr[2], 0), offset_y),
-                                    mix(GET_CH(*in_ptr[0], 1),
-                                        GET_CH(*in_ptr[2], 1), offset_y),
-                                    mix(GET_CH(*in_ptr[0], 2),
-                                        GET_CH(*in_ptr[2], 2), offset_y));
-                    } else if (offset_x > OFFSET_TOL_UPPER) {
-                        // Need 2 samples, mix with offset_y
-                        out[out_row_offset + x] =
-                            GET_COL(mix(GET_CH(*in_ptr[1], 0),
-                                        GET_CH(*in_ptr[3], 0), offset_y),
-                                    mix(GET_CH(*in_ptr[1], 1),
-                                        GET_CH(*in_ptr[3], 1), offset_y),
-                                    mix(GET_CH(*in_ptr[1], 2),
-                                        GET_CH(*in_ptr[3], 2), offset_y));
-                    } else {
-                        // Need 4 samples, mix with offset_x and offset_y
-                        out[out_row_offset + x] =
-                            GET_COL(mix(mix(GET_CH(*in_ptr[0], 0),
+                    col = GET_COL(
+                        mix(GET_CH(in_img_data[in_row_offset], 0),
+                            GET_CH(in_img_data[in_row_offset + in_width], 0),
+                            offset_y),
+                        mix(GET_CH(in_img_data[in_row_offset], 1),
+                            GET_CH(in_img_data[in_row_offset + in_width], 1),
+                            offset_y),
+                        mix(GET_CH(in_img_data[in_row_offset], 2),
+                            GET_CH(in_img_data[in_row_offset + in_width], 2),
+                            offset_y));
+                }
+                for (int x = 0; x < border_x; ++x) {
+                    out[out_row_offset + x] = col;
+                }
+
+                // Keep all values relevant for interpolation in memory
+                // and update them lazily.
+                int in_x_error = in_width / 2 - out_width / 2 - out_width +
+                                 in_width * border_x;
+                uint32_t* in_ptr[4] = {
+                    in_img_data + in_row_offset,
+                    in_img_data + in_row_offset + 1,
+                    in_img_data + in_row_offset + in_width,
+                    in_img_data + in_row_offset + in_width + 1};
+                // Center part of image
+                for (int x = border_x; x < out_width - border_x;
+                     ++x, in_x_error += in_width) {
+                    // Update samples when we've moved enough.
+                    if (in_x_error >= 0) {
+                        in_x_error -= out_width;
+                        // Shift samples one to right.
+                        ++in_ptr[0];
+                        ++in_ptr[1];
+                        ++in_ptr[2];
+                        ++in_ptr[3];
+                    }
+
+                    // Calc. and write output pixel
+                    // Do a bilinear sampling with branching for often-occuring
+                    // 0 and 1 weight samples.
+                    const auto offset_x = weights_x[x];
+                    if (offset_y < OFFSET_TOL) {
+                        if (offset_x < OFFSET_TOL) {
+                            // Need 1 sample, no mixing
+                            out[out_row_offset + x] = *in_ptr[0];
+                        } else if (offset_x > OFFSET_TOL_UPPER) {
+                            // Need 1 sample, no mixing
+                            out[out_row_offset + x] = *in_ptr[1];
+                        } else {
+                            // Need 2 samples, mix with offset_x
+                            out[out_row_offset + x] =
+                                GET_COL(mix(GET_CH(*in_ptr[0], 0),
                                             GET_CH(*in_ptr[1], 0), offset_x),
-                                        mix(GET_CH(*in_ptr[2], 0),
-                                            GET_CH(*in_ptr[3], 0), offset_x),
-                                        offset_y),
-                                    mix(mix(GET_CH(*in_ptr[0], 1),
+                                        mix(GET_CH(*in_ptr[0], 1),
                                             GET_CH(*in_ptr[1], 1), offset_x),
+                                        mix(GET_CH(*in_ptr[0], 2),
+                                            GET_CH(*in_ptr[1], 2), offset_x));
+                        }
+                    } else if (offset_y > OFFSET_TOL_UPPER) {
+                        if (offset_x < OFFSET_TOL) {
+                            // Need 1 sample, no mixing
+                            out[out_row_offset + x] = *in_ptr[2];
+                        } else if (offset_x > OFFSET_TOL_UPPER) {
+                            // Need 1 sample, no mixing
+                            out[out_row_offset + x] = *in_ptr[3];
+                        } else {
+                            // Need 2 samples, mix with offset_x
+                            out[out_row_offset + x] =
+                                GET_COL(mix(GET_CH(*in_ptr[2], 0),
+                                            GET_CH(*in_ptr[3], 0), offset_x),
                                         mix(GET_CH(*in_ptr[2], 1),
                                             GET_CH(*in_ptr[3], 1), offset_x),
-                                        offset_y),
-                                    mix(mix(GET_CH(*in_ptr[0], 2),
-                                            GET_CH(*in_ptr[1], 2), offset_x),
                                         mix(GET_CH(*in_ptr[2], 2),
-                                            GET_CH(*in_ptr[3], 2), offset_x),
-                                        offset_y));
+                                            GET_CH(*in_ptr[3], 2), offset_x));
+                        }
+                    } else {
+                        if (offset_x < OFFSET_TOL) {
+                            // Need 2 samples, mix with offset_y
+                            out[out_row_offset + x] =
+                                GET_COL(mix(GET_CH(*in_ptr[0], 0),
+                                            GET_CH(*in_ptr[2], 0), offset_y),
+                                        mix(GET_CH(*in_ptr[0], 1),
+                                            GET_CH(*in_ptr[2], 1), offset_y),
+                                        mix(GET_CH(*in_ptr[0], 2),
+                                            GET_CH(*in_ptr[2], 2), offset_y));
+                        } else if (offset_x > OFFSET_TOL_UPPER) {
+                            // Need 2 samples, mix with offset_y
+                            out[out_row_offset + x] =
+                                GET_COL(mix(GET_CH(*in_ptr[1], 0),
+                                            GET_CH(*in_ptr[3], 0), offset_y),
+                                        mix(GET_CH(*in_ptr[1], 1),
+                                            GET_CH(*in_ptr[3], 1), offset_y),
+                                        mix(GET_CH(*in_ptr[1], 2),
+                                            GET_CH(*in_ptr[3], 2), offset_y));
+                        } else {
+                            // Need 4 samples, mix with offset_x and offset_y
+                            out[out_row_offset + x] = GET_COL(
+                                mix(mix(GET_CH(*in_ptr[0], 0),
+                                        GET_CH(*in_ptr[1], 0), offset_x),
+                                    mix(GET_CH(*in_ptr[2], 0),
+                                        GET_CH(*in_ptr[3], 0), offset_x),
+                                    offset_y),
+                                mix(mix(GET_CH(*in_ptr[0], 1),
+                                        GET_CH(*in_ptr[1], 1), offset_x),
+                                    mix(GET_CH(*in_ptr[2], 1),
+                                        GET_CH(*in_ptr[3], 1), offset_x),
+                                    offset_y),
+                                mix(mix(GET_CH(*in_ptr[0], 2),
+                                        GET_CH(*in_ptr[1], 2), offset_x),
+                                    mix(GET_CH(*in_ptr[2], 2),
+                                        GET_CH(*in_ptr[3], 2), offset_x),
+                                    offset_y));
+                        }
                     }
                 }
-            }
 
-            // Right border, offset_x = 1
-            if (offset_y < OFFSET_TOL) {
-                col = in_img_data[in_row_offset + in_width - 1];
-            } else if (offset_y > OFFSET_TOL_UPPER) {
-                col = in_img_data[in_row_offset + 2 * in_width - 1];
-            } else {
-                col = GET_COL(
-                    mix(GET_CH(in_img_data[in_row_offset + in_width - 1], 0),
-                        GET_CH(in_img_data[in_row_offset + 2 * in_width - 1],
-                               0),
-                        offset_y),
-                    mix(GET_CH(in_img_data[in_row_offset + in_width - 1], 1),
-                        GET_CH(in_img_data[in_row_offset + 2 * in_width - 1],
-                               1),
-                        offset_y),
-                    mix(GET_CH(in_img_data[in_row_offset + in_width - 1], 2),
-                        GET_CH(in_img_data[in_row_offset + 2 * in_width - 1],
-                               2),
-                        offset_y));
-            }
-            for (int x = out_width - border_x; x < out_width; ++x) {
-                out[out_row_offset + x] = col;
+                // Right border, offset_x = 1
+                if (offset_y < OFFSET_TOL) {
+                    col = in_img_data[in_row_offset + in_width - 1];
+                } else if (offset_y > OFFSET_TOL_UPPER) {
+                    col = in_img_data[in_row_offset + 2 * in_width - 1];
+                } else {
+                    col = GET_COL(
+                        mix(GET_CH(in_img_data[in_row_offset + in_width - 1],
+                                   0),
+                            GET_CH(
+                                in_img_data[in_row_offset + 2 * in_width - 1],
+                                0),
+                            offset_y),
+                        mix(GET_CH(in_img_data[in_row_offset + in_width - 1],
+                                   1),
+                            GET_CH(
+                                in_img_data[in_row_offset + 2 * in_width - 1],
+                                1),
+                            offset_y),
+                        mix(GET_CH(in_img_data[in_row_offset + in_width - 1],
+                                   2),
+                            GET_CH(
+                                in_img_data[in_row_offset + 2 * in_width - 1],
+                                2),
+                            offset_y));
+                }
+                for (int x = out_width - border_x; x < out_width; ++x) {
+                    out[out_row_offset + x] = col;
+                }
             }
         }
 
