@@ -112,8 +112,6 @@ int main(int argc, char* argv[]) {
     uint32_t* out = reinterpret_cast<uint32_t*>(out_img_data.get());
 
     // Stuff that's constant over the whole image
-    const float in_x_step = static_cast<float>(in_width) / out_width;
-    const float in_y_step = static_cast<float>(in_height) / out_height;
     // Iteration limits: For the first and last N pixels in each row and column,
     // we don't need to interpolate as we simply sample the border pixel from
     // the input image. This not just saves computations, but also allows us to
@@ -138,9 +136,38 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<float[]> weights_x(new float[out_width]);
     std::unique_ptr<float[]> weights_y(new float[out_height]);
 #endif
-    float in_x = 0.5f * in_x_step - 0.5f;
-    for (int x = 0; x < out_width; ++x, in_x += in_x_step) {
-        const float phase = in_x - int(in_x);
+
+    for (int x = 0, in_x_error = in_width / 2 - out_width / 2 - out_width;
+         x < out_width; ++x, in_x_error += in_width) {
+        if (in_x_error >= 0) {
+            in_x_error -= out_width;
+        }
+
+        // This way is the original way:
+        // const float in_x_f = (x + 0.5f) * in_x_step - 0.5f;
+        // const float phase = in_x_f - int(in_x_f);
+
+        // This is the halfway cheating way, using in_x_f as a helper:
+        // const float in_x_f = (x + 0.5f) * in_x_step - 0.5f;
+        // const float phase = in_x_f - in_x;
+
+        // starting "in_x":
+        // float in_x = 0.5f * in_x_step - 0.5f;
+        // expanding and times out_width:
+        // int in_x_tow = 0.5 * in_width - 0.5 * out_width;
+
+        // now, shift it by -out width to have comp. against 0
+        // => If condition becomes >= 0 instead of >= out_width, and we -
+        // out_width on starting in_x_err
+
+        // To get phase back without calc. in_x_f, shift back by +out_width
+        // again, and divide by out_width.
+        const float phase =
+            static_cast<float>(in_x_error + out_width) / out_width;
+
+        // printf("phase %f\n", phase);
+
+        const float in_x_step = static_cast<float>(in_width) / out_width;
 #ifdef FIXED_POINT
         weights_x[x] = float_to_fixed(smoothstep(
             0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase));
@@ -149,9 +176,17 @@ int main(int argc, char* argv[]) {
             smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
 #endif  // FIXED_POINT
     }
-    for (int y = 0; y < out_height; ++y) {
-        const float in_y = (y + 0.5f) * in_y_step - 0.5f;
-        const float phase = in_y - int(in_y);
+    for (int y = 0, in_y_error = in_height / 2 - out_height / 2 - out_height;
+         y < out_height; ++y, in_y_error += in_height) {
+        if (in_y_error >= 0) {
+            in_y_error -= out_height;
+        }
+        const float phase =
+            static_cast<float>(in_y_error + out_height) / out_height;
+
+        // printf("phase %f\n", phase);
+
+        const float in_y_step = static_cast<float>(in_height) / out_height;
 #ifdef FIXED_POINT
         weights_y[y] = float_to_fixed(smoothstep(
             0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase));
@@ -177,15 +212,14 @@ int main(int argc, char* argv[]) {
             }
 
             // Middle part of top bar
-            float in_x = (border_x + 0.5f) * in_x_step - 0.5f;
-            int in_sample_x = int(in_x);
-            uint32_t* in_ptr[2] = {in_img_data + in_sample_x,
-                                   in_img_data + in_sample_x + 1};
+            int in_x_error =
+                in_width / 2 - out_width / 2 - out_width + in_width * border_x;
+            uint32_t* in_ptr[2] = {in_img_data, in_img_data + 1};
             for (int x = border_x; x < out_width - border_x;
-                 ++x, in_x += in_x_step) {
+                 ++x, in_x_error += in_width) {
                 // Update samples when we've moved enough.
-                if (int(in_x) > in_sample_x) {
-                    in_sample_x = int(in_x);
+                if (in_x_error >= 0) {
+                    in_x_error -= out_width;
                     // Shift samples one to right.
                     ++in_ptr[0];
                     ++in_ptr[1];
@@ -216,11 +250,19 @@ int main(int argc, char* argv[]) {
             }
         }
 
-#pragma omp parallel for
-        for (int y = border_y; y < out_height - border_y; ++y) {
+        // #pragma omp parallel for
+        for (int y = border_y,
+                 in_y_error = in_height / 2 - out_height / 2 - out_height +
+                              in_height * border_y,
+                 in_row_offset = 0;
+             y < out_height - border_y; ++y, in_y_error += in_height) {
             const int out_row_offset = y * out_width;
-            const float in_y = (y + 0.5f) * in_y_step - 0.5f;
-            const int in_row_offset = int(in_y) * in_width;
+
+            // Shift input row when we've moved enough.
+            if (in_y_error >= 0) {
+                in_y_error -= out_height;
+                in_row_offset += in_width;
+            }
 
             const auto offset_y = weights_y[y];
 
@@ -248,19 +290,18 @@ int main(int argc, char* argv[]) {
 
             // Keep all values relevant for interpolation in memory
             // and update them lazily.
-            float in_x = (border_x + 0.5f) * in_x_step - 0.5f;
-            int in_sample_x = int(in_x);
-            uint32_t* in_ptr[4] = {
-                in_img_data + in_row_offset + in_sample_x,
-                in_img_data + in_row_offset + in_sample_x + 1,
-                in_img_data + in_row_offset + in_width + in_sample_x,
-                in_img_data + in_row_offset + in_width + in_sample_x + 1};
+            int in_x_error =
+                in_width / 2 - out_width / 2 - out_width + in_width * border_x;
+            uint32_t* in_ptr[4] = {in_img_data + in_row_offset,
+                                   in_img_data + in_row_offset + 1,
+                                   in_img_data + in_row_offset + in_width,
+                                   in_img_data + in_row_offset + in_width + 1};
             // Center part of image
             for (int x = border_x; x < out_width - border_x;
-                 ++x, in_x += in_x_step) {
+                 ++x, in_x_error += in_width) {
                 // Update samples when we've moved enough.
-                if (int(in_x) > in_sample_x) {
-                    in_sample_x = int(in_x);
+                if (in_x_error >= 0) {
+                    in_x_error -= out_width;
                     // Shift samples one to right.
                     ++in_ptr[0];
                     ++in_ptr[1];
@@ -373,26 +414,25 @@ int main(int argc, char* argv[]) {
         }
 
         // Bottom border, offset_y is effectively = 1
+        const int in_row_offset = (in_height - 1) * in_width;
         for (int y = out_height - border_y; y < out_height; ++y) {
             const int out_row_offset = y * out_width;
-            const int in_row_offset = (in_height - 1) * in_width;
 
             // Bottom left corner, offset_x = 0
             for (int x = 0; x < border_x; ++x) {
                 out[out_row_offset + x] = in_img_data[in_row_offset];
             }
 
-            // Middle part of top bar
-            float in_x = (border_x + 0.5f) * in_x_step - 0.5f;
-            int in_sample_x = int(in_x);
-            uint32_t* in_ptr[2] = {
-                in_img_data + in_row_offset + in_sample_x,
-                in_img_data + in_row_offset + in_sample_x + 1};
+            // Middle part of bottom bar
+            int in_x_error =
+                in_width / 2 - out_width / 2 - out_width + in_width * border_x;
+            uint32_t* in_ptr[2] = {in_img_data + in_row_offset,
+                                   in_img_data + in_row_offset + 1};
             for (int x = border_x; x < out_width - border_x;
-                 ++x, in_x += in_x_step) {
+                 ++x, in_x_error += in_width) {
                 // Update samples when we've moved enough.
-                if (int(in_x) > in_sample_x) {
-                    in_sample_x = int(in_x);
+                if (in_x_error >= 0) {
+                    in_x_error -= out_width;
                     // Shift samples one to right.
                     ++in_ptr[0];
                     ++in_ptr[1];
