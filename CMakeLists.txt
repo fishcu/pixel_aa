@@ -35,7 +35,7 @@ if (BUILD_FOR_MM)
         "-finline-functions"
         "-funroll-loops"
         "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
-        #"-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+        "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
         "-fopenmp"
     )
     target_link_options(${PROJECT_NAME}

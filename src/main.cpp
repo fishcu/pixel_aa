@@ -514,7 +514,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    printf("Output image saved successfully!");
+    printf("Output image saved successfully!\n");
 
     stbi_image_free(in_img_data);
 
