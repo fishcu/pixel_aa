@@ -18,10 +18,13 @@ add_executable(${PROJECT_NAME}
 include_directories(
     "deps/stb"
 )
-set_target_properties(${EXECUTABLE_NAME} PROPERTIES
-#   CXX_STANDARD 17
-#   CXX_STANDARD_REQUIRED YES
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED YES
     POSITION_INDEPENDENT_CODE ON
+)
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    stdc++fs
 )
 if (BUILD_FOR_MM)
     target_compile_options(${PROJECT_NAME}

@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -494,17 +495,17 @@ int main(int argc, char* argv[]) {
            static_cast<float>(duration.count()) / num_perf_passes);
 
     // Save the resulting image
-    // Get the directory path and file name from the input file path
-    std::string directory =
-        input_path.substr(0, input_path.find_last_of("/\\"));
-    std::string file_name =
-        input_path.substr(input_path.find_last_of("/\\") + 1);
+    std::filesystem::path input_path_obj(input_path);
+    std::string directory = input_path_obj.parent_path().string();
+    std::string file_name = input_path_obj.filename().string();
 
     // Remove the original file extension from the file name
     std::string output_file_name =
         file_name.substr(0, file_name.find_last_of('.'));
     std::string output_path =
         directory + "/" + output_file_name + "_output.png";
+
+    printf("Saving output image to path: %s\n", output_path.c_str());
 
     if (stbi_write_png(output_path.c_str(), out_width, out_height, channels,
                        out_img_data.get(), out_width * channels) == 0) {
@@ -513,7 +514,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    printf("Output image saved successfully: %s\n", output_path.c_str());
+    printf("Output image saved successfully!");
 
     stbi_image_free(in_img_data);
 
