@@ -13,7 +13,7 @@ endif()
 find_package(OpenMP)
 
 add_executable(${PROJECT_NAME}
-    "src/main.cpp"
+    "src/pixel_aa.cpp"
 )
 include_directories(
     "deps/stb"
@@ -60,3 +60,23 @@ else()
         target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
     endif()
 endif()
+
+add_executable(jit_test
+    "src/jit.cpp"
+)
+set(TINYCC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/tinycc)
+# Run the configure command for TinyCC
+execute_process(
+    COMMAND ${TINYCC_SOURCE_DIR}/configure
+    WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
+)
+# Run the make command to build TinyCC
+execute_process(
+    COMMAND make
+    WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
+)
+add_library(tinycc STATIC ${TINYCC_SOURCE_FILES})
+target_include_directories(tinycc PUBLIC ${TINYCC_SOURCE_DIR})
+
+# Link your existing target against TinyCC library
+target_link_libraries(jit_test PRIVATE ${TINYCC_SOURCE_DIR}/libtcc.a)
