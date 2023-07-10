@@ -5,6 +5,7 @@
 #include <string>
 
 extern "C" {
+#define TCC_ARM_HARDFLOAT
 #include "libtcc.h"
 }
 
@@ -51,8 +52,6 @@ int main(int argc, char* argv[]) {
 #define MATH_EXAMPLE
 #ifdef MATH_EXAMPLE
     const char* source =
-        "#define __ARM_PCS_VFP"  // So that TCC includes stubs-hard.h instead of
-                                 // non-existant stubs-soft.h
         "#include <math.h>"
         "void processArray(float* input, float* output, int size) {"
         "    for (int i = 0; i < size; ++i) {"
@@ -61,7 +60,6 @@ int main(int argc, char* argv[]) {
         "}";
 #else
     const char* source =
-        "#define __ARM_PCS_VFP"
         "#include <tcclib.h>"
         "int foo() {"
         "    printf(\"hello world!!!\\n\");"
