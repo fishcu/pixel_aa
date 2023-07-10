@@ -48,17 +48,18 @@ int main(int argc, char* argv[]) {
 
     tcc_set_output_type(tcc, TCC_OUTPUT_MEMORY);
 
-    // const char* source =
-    //     "#define __ARM_PCS_VFP"  // So that TCC includes stubs-hard.h instead
-    //     of
-    //                              // non-existant stubs-soft.h
-    //     "#include <math.h>"
-    //     "void processArray(float* input, float* output, int size) {"
-    //     "    for (int i = 0; i < size; ++i) {"
-    //     "        output[i] = sqrt(input[i]);"
-    //     "    }"
-    //     "}";
-
+#define MATH_EXAMPLE
+#ifdef MATH_EXAMPLE
+    const char* source =
+        "#define __ARM_PCS_VFP"  // So that TCC includes stubs-hard.h instead of
+                                 // non-existant stubs-soft.h
+        "#include <math.h>"
+        "void processArray(float* input, float* output, int size) {"
+        "    for (int i = 0; i < size; ++i) {"
+        "        output[i] = sqrt(input[i]);"
+        "    }"
+        "}";
+#else
     const char* source =
         "#define __ARM_PCS_VFP"
         "#include <tcclib.h>"
@@ -66,6 +67,7 @@ int main(int argc, char* argv[]) {
         "    printf(\"hello world!!!\\n\");"
         "    return 0;"
         "}";
+#endif
 
     if (tcc_compile_string(tcc, source) == -1) {
         tcc_delete(tcc);
@@ -77,22 +79,24 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // auto processArray = reinterpret_cast<void (*)(float*, float*, int)>(
-    //     tcc_get_symbol(tcc, "processArray"));
-    // if (!processArray) {
-    //     std::cerr << "Failed to retrieve function pointer" << std::endl;
-    //     tcc_delete(tcc);
-    //     return 1;
-    // }
-
+#ifdef MATH_EXAMPLE
+    auto processArray = reinterpret_cast<void (*)(float*, float*, int)>(
+        tcc_get_symbol(tcc, "processArray"));
+    if (!processArray) {
+        std::cerr << "Failed to retrieve function pointer" << std::endl;
+        tcc_delete(tcc);
+        return 1;
+    }
+#else
     auto func = reinterpret_cast<int (*)(void)>(tcc_get_symbol(tcc, "foo"));
     if (!func) {
         std::cerr << "Failed to retrieve function pointer" << std::endl;
         tcc_delete(tcc);
         return 1;
     }
+#endif
 
-    /*
+#ifdef MATH_EXAMPLE
     // Example data
     constexpr int size = 5;
     float input[size] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
@@ -111,9 +115,9 @@ int main(int argc, char* argv[]) {
         std::cout << output[i] << " ";
     }
     std::cout << std::endl;
-    */
-
+#else
     func();
+#endif
 
     tcc_delete(tcc);
 
