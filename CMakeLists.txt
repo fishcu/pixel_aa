@@ -65,18 +65,20 @@ add_executable(jit_test
     "src/jit.cpp"
 )
 set(TINYCC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/tinycc)
-# Run the configure command for TinyCC
-execute_process(
-    COMMAND ${TINYCC_SOURCE_DIR}/configure
-    WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
-)
-# Run the make command to build TinyCC
-execute_process(
-    COMMAND make
-    WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
-)
-add_library(tinycc STATIC ${TINYCC_SOURCE_FILES})
-target_include_directories(tinycc PUBLIC ${TINYCC_SOURCE_DIR})
+# # Run the configure command for TinyCC
+# execute_process(
+#     COMMAND ${TINYCC_SOURCE_DIR}/configure
+#     WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
+# )
+# # Run the make command to build TinyCC
+# execute_process(
+#     COMMAND make
+#     WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
+# )
+add_library(tinycc INTERFACE)
+target_link_libraries(tinycc INTERFACE ${TINYCC_SOURCE_DIR}/libtcc.a ${TINYCC_SOURCE_DIR}/libtcc1.a)
+target_include_directories(tinycc INTERFACE ${TINYCC_SOURCE_DIR})
+target_link_libraries(tinycc INTERFACE pthread dl)
 
 # Link your existing target against TinyCC library
-target_link_libraries(jit_test PRIVATE ${TINYCC_SOURCE_DIR}/libtcc.a)
+target_link_libraries(jit_test PRIVATE tinycc)
