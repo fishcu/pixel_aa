@@ -87,5 +87,11 @@ add_executable(jit_test
     "src/jit.cpp"
 )
 
+if (BUILD_FOR_MM)
+    target_compile_definitions(jit_test PRIVATE
+        BUILD_FOR_MM
+    )
+endif()
+
 # Link your existing target against TinyCC library
 target_link_libraries(jit_test PRIVATE tinycc)

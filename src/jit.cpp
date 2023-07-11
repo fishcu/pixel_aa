@@ -5,7 +5,13 @@
 #include <string>
 
 extern "C" {
+#ifdef BUILD_FOR_MM
+#define TCC_CPU_VERSION = 7
+#define TCC_TARGET_ARM
+#define TCC_ARM_EABI
 #define TCC_ARM_HARDFLOAT
+#define TCC_ARM_VFP
+#endif  // BUILD_FOR_MM
 #include "libtcc.h"
 }
 
@@ -52,20 +58,28 @@ int main(int argc, char* argv[]) {
 #define MATH_EXAMPLE
 #ifdef MATH_EXAMPLE
     const char* source =
+#ifdef BUILD_FOR_MM
+        "#define TCC_CPU_VERSION = 7"
+        "#define TCC_TARGET_ARM"
+        "#define TCC_ARM_EABI"
+        "#define TCC_ARM_HARDFLOAT"
+        "#define TCC_ARM_VFP"
+    // "#define __ARM_PCS_VFP"
+#endif  // BUILD_FOR_MM
         "#include <math.h>"
         "void processArray(float* input, float* output, int size) {"
         "    for (int i = 0; i < size; ++i) {"
         "        output[i] = sqrt(input[i]);"
         "    }"
         "}";
-#else
+#else   // !MATH_EXAMPLE
     const char* source =
         "#include <tcclib.h>"
         "int foo() {"
         "    printf(\"hello world!!!\\n\");"
         "    return 0;"
         "}";
-#endif
+#endif  // MATH_EXAMPLE
 
     if (tcc_compile_string(tcc, source) == -1) {
         tcc_delete(tcc);
