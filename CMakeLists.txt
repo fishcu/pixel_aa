@@ -33,7 +33,6 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    stdc++fs
     tinycc
 )
 if (BUILD_FOR_MM)

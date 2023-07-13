@@ -1,6 +1,6 @@
 #include <chrono>
 #include <cmath>
-#include <filesystem>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -11,6 +11,49 @@
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+
+char* get_parent_path(const char* path) {
+    char* parent_path = strdup(path);
+    char* last_separator = strrchr(parent_path, '/');
+    if (last_separator != NULL) {
+        *last_separator = '\0';
+    }
+    return parent_path;
+}
+
+char* get_filename(const char* path) {
+    const char* last_separator = strrchr(path, '/');
+    if (last_separator != NULL) {
+        return strdup(last_separator + 1);
+    }
+    return strdup(path);
+}
+
+char* remove_extension(const char* filename) {
+    const char* extension_pos = strchr(filename, '.');
+    if (extension_pos != NULL) {
+        char* name_without_extension =
+            (char*)malloc((extension_pos - filename + 1) * sizeof(char));
+        strncpy(name_without_extension, filename, extension_pos - filename);
+        name_without_extension[extension_pos - filename] = '\0';
+        return name_without_extension;
+    }
+    return strdup(filename);
+}
+
+char* get_output_path(const char* directory, const char* output_file_name) {
+    size_t directory_length = strlen(directory);
+    size_t filename_length = strlen(output_file_name);
+    const char* output_suffix = "_output.png";
+    char* output_path = (char*)malloc(
+        (directory_length + 1 + filename_length + strlen(output_suffix)) *
+        sizeof(char));
+    strcpy(output_path, directory);
+    strcat(output_path, "/");
+    strcat(output_path, output_file_name);
+    strcat(output_path, output_suffix);
+    return output_path;
+}
 
 // We need a data type that's at least 8 bits bigger than
 // FIXED_POINT_BITS to handle multiplication with uchar and not overflow.
@@ -78,10 +121,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::string input_path = argv[1];
+    const char* input_path = argv[1];
     int in_width, in_height, channels;
-    unsigned char* in_img_data_uchar = stbi_load(
-        input_path.c_str(), &in_width, &in_height, &channels, STBI_rgb_alpha);
+    unsigned char* in_img_data_uchar =
+        stbi_load(input_path, &in_width, &in_height, &channels, STBI_rgb_alpha);
     if (in_img_data_uchar == nullptr) {
         printf("Failed to load image.\n");
         return 1;
@@ -474,27 +517,30 @@ int main(int argc, char* argv[]) {
            static_cast<float>(duration.count()) / num_perf_passes);
 
     // Save the resulting image
-    std::filesystem::path input_path_obj(input_path);
-    std::string directory = input_path_obj.parent_path().string();
-    std::string file_name = input_path_obj.filename().string();
+    char* directory = get_parent_path(input_path);
+    char* file_name = get_filename(input_path);
+    char* output_file_name = remove_extension(file_name);
+    char* output_path = get_output_path(directory, output_file_name);
 
-    // Remove the original file extension from the file name
-    std::string output_file_name =
-        file_name.substr(0, file_name.find_last_of('.'));
-    std::string output_path =
-        directory + "/" + output_file_name + "_output.png";
+    printf("Saving output image to path: %s\n", output_path);
 
-    printf("Saving output image to path: %s\n", output_path.c_str());
-
-    if (stbi_write_png(output_path.c_str(), out_width, out_height, channels,
+    if (stbi_write_png(output_path, out_width, out_height, channels,
                        out_img_data.get(), out_width * channels) == 0) {
         printf("Failed to save the output image.\n");
+        free(directory);
+        free(file_name);
+        free(output_file_name);
+        free(output_path);
         stbi_image_free(in_img_data);
         return 1;
     }
 
     printf("Output image saved successfully!\n");
 
+    free(directory);
+    free(file_name);
+    free(output_file_name);
+    free(output_path);
     stbi_image_free(in_img_data);
 
     return 0;
