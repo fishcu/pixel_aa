@@ -1,11 +1,14 @@
-#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <string>
 
+// #define USE_OPENMP
+#ifdef USE_OPENMP
 #include "omp.h"
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -220,8 +223,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Measure performance
-    const auto start = std::chrono::high_resolution_clock::now();
-    constexpr int num_perf_passes = 1000;
+    struct timespec start, end;
+    const int num_perf_passes = 1000;
+    clock_gettime(CLOCK_MONOTONIC, &start);
 
     // Iterate over all pixels in the output image
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
@@ -273,10 +277,18 @@ int main(int argc, char* argv[]) {
             }
         }
 
+#ifdef USE_OPENMP
 #pragma omp parallel
+#endif  // USE_OPENMP
         {
+#ifdef USE_OPENMP
             int num_threads = omp_get_num_threads();
             int thread_num = omp_get_thread_num();
+#else   // !USE_OPENMP
+            int num_threads = 1;
+            int thread_num = 0;
+#endif  // USE_OPENMP
+
             int start_y = border_y + (out_height - border_y - border_y) *
                                          thread_num / num_threads;
             int end_y = border_y + (out_height - border_y - border_y) *
@@ -509,12 +521,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const auto end = std::chrono::high_resolution_clock::now();
-    const auto duration =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    long duration_ms = (end.tv_sec - start.tv_sec) * 1000 +
+                       (end.tv_nsec - start.tv_nsec) / 1000000;
     printf("Time for %d passes: %ld ms, that is %f ms per pass.\n",
-           num_perf_passes, duration.count(),
-           static_cast<float>(duration.count()) / num_perf_passes);
+           num_perf_passes, duration_ms, (float)duration_ms / num_perf_passes);
 
     // Save the resulting image
     char* directory = get_parent_path(input_path);
