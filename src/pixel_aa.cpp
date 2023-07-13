@@ -144,29 +144,10 @@ int main(int argc, char* argv[]) {
             in_x_error -= out_width;
         }
 
-        // This way is the original way:
-        // const float in_x_f = (x + 0.5f) * in_x_step - 0.5f;
-        // const float phase = in_x_f - int(in_x_f);
-
-        // This is the halfway cheating way, using in_x_f as a helper:
-        // const float in_x_f = (x + 0.5f) * in_x_step - 0.5f;
-        // const float phase = in_x_f - in_x;
-
-        // starting "in_x":
-        // float in_x = 0.5f * in_x_step - 0.5f;
-        // expanding and times out_width:
-        // int in_x_tow = 0.5 * in_width - 0.5 * out_width;
-
-        // now, shift it by -out width to have comp. against 0
-        // => If condition becomes >= 0 instead of >= out_width, and we -
-        // out_width on starting in_x_err
-
         // To get phase back without calc. in_x_f, shift back by +out_width
         // again, and divide by out_width.
         const float phase =
             static_cast<float>(in_x_error + out_width) / out_width;
-
-        // printf("phase %f\n", phase);
 
         const float in_x_step = static_cast<float>(in_width) / out_width;
 #ifdef FIXED_POINT
@@ -184,8 +165,6 @@ int main(int argc, char* argv[]) {
         }
         const float phase =
             static_cast<float>(in_y_error + out_height) / out_height;
-
-        // printf("phase %f\n", phase);
 
         const float in_y_step = static_cast<float>(in_height) / out_height;
 #ifdef FIXED_POINT

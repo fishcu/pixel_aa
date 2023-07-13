@@ -12,6 +12,17 @@ endif()
 
 find_package(OpenMP)
 
+set(TINYCC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/tinycc)
+if (BUILD_FOR_MM)
+    set(TINYCC_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib_tcc/arm)
+else()
+    set(TINYCC_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib_tcc/x86_64)
+endif()
+add_library(tinycc INTERFACE)
+target_link_libraries(tinycc INTERFACE ${TINYCC_LIB_DIR}/libtcc.a ${TINYCC_LIB_DIR}/libtcc1.a)
+target_include_directories(tinycc INTERFACE ${TINYCC_SOURCE_DIR})
+target_link_libraries(tinycc INTERFACE pthread dl)
+
 add_executable(${PROJECT_NAME}
     "src/pixel_aa.cpp"
 )
@@ -19,12 +30,11 @@ include_directories(
     "deps/stb"
 )
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED YES
     POSITION_INDEPENDENT_CODE ON
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
     stdc++fs
+    tinycc
 )
 if (BUILD_FOR_MM)
     target_compile_options(${PROJECT_NAME}
@@ -44,6 +54,7 @@ if (BUILD_FOR_MM)
     )
     target_compile_definitions(${PROJECT_NAME}
         PRIVATE
+        "BUILD_FOR_MM"
         "FIXED_POINT"
     )
 else()
@@ -61,37 +72,3 @@ else()
     endif()
 endif()
 
-
-set(TINYCC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/tinycc)
-if (BUILD_FOR_MM)
-    set(TINYCC_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib_tcc/arm)
-else()
-    set(TINYCC_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib_tcc/x86_64)
-endif()
-# # Run the configure command for TinyCC
-# execute_process(
-#     COMMAND ${TINYCC_SOURCE_DIR}/configure
-#     WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
-# )
-# # Run the make command to build TinyCC
-# execute_process(
-#     COMMAND make
-#     WORKING_DIRECTORY ${TINYCC_SOURCE_DIR}
-# )
-add_library(tinycc INTERFACE)
-target_link_libraries(tinycc INTERFACE ${TINYCC_LIB_DIR}/libtcc.a ${TINYCC_LIB_DIR}/libtcc1.a)
-target_include_directories(tinycc INTERFACE ${TINYCC_SOURCE_DIR})
-target_link_libraries(tinycc INTERFACE pthread dl)
-
-add_executable(jit_test
-    "src/jit.cpp"
-)
-
-if (BUILD_FOR_MM)
-    target_compile_definitions(jit_test PRIVATE
-        BUILD_FOR_MM
-    )
-endif()
-
-# Link your existing target against TinyCC library
-target_link_libraries(jit_test PRIVATE tinycc)
