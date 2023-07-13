@@ -1,9 +1,9 @@
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <ctime>
-#include <iostream>
-#include <memory>
-#include <string>
 
 // #define USE_OPENMP
 #ifdef USE_OPENMP
@@ -146,17 +146,17 @@ int main(int argc, char* argv[]) {
     printf("Number of channels: %d\n", channels);
 
     // Allocate memory for the output image
-    const int out_width = std::stoi(argv[2]);
-    const int out_height = std::stoi(argv[3]);
+    const int out_width = atoi(argv[2]);
+    const int out_height = atoi(argv[3]);
     if (out_width < in_width || out_height < in_height) {
         printf("Error: Target size is smaller than the input image size.\n");
         stbi_image_free(in_img_data_uchar);
         return 1;
     }
     const int output_size = out_width * out_height * channels;
-    std::unique_ptr<unsigned char[]> out_img_data(
-        new unsigned char[output_size]);
-    uint32_t* out = reinterpret_cast<uint32_t*>(out_img_data.get());
+    unsigned char* out_img_data =
+        (unsigned char*)malloc(output_size * sizeof(unsigned char));
+    uint32_t* out = (uint32_t*)out_img_data;
 
     // Stuff that's constant over the whole image
     // Iteration limits: For the first and last N pixels in each row and column,
@@ -177,11 +177,13 @@ int main(int argc, char* argv[]) {
     // Precompute interpolation weights
     // constexpr float sharpness = 1.5f;
 #ifdef FIXED_POINT
-    std::unique_ptr<fixed_point_t[]> weights_x(new fixed_point_t[out_width]);
-    std::unique_ptr<fixed_point_t[]> weights_y(new fixed_point_t[out_height]);
+    fixed_point_t* weights_x =
+        (fixed_point_t*)malloc(out_width * sizeof(fixed_point_t));
+    fixed_point_t* weights_y =
+        (fixed_point_t*)malloc(out_height * sizeof(fixed_point_t));
 #else
-    std::unique_ptr<float[]> weights_x(new float[out_width]);
-    std::unique_ptr<float[]> weights_y(new float[out_height]);
+    float* weights_x = (float*)malloc(out_width * sizeof(float));
+    float* weights_y = (float*)malloc(out_height * sizeof(float));
 #endif
 
     for (int x = 0, in_x_error = in_width / 2 - out_width / 2 - out_width;
@@ -536,12 +538,15 @@ int main(int argc, char* argv[]) {
     printf("Saving output image to path: %s\n", output_path);
 
     if (stbi_write_png(output_path, out_width, out_height, channels,
-                       out_img_data.get(), out_width * channels) == 0) {
+                       out_img_data, out_width * channels) == 0) {
         printf("Failed to save the output image.\n");
         free(directory);
         free(file_name);
         free(output_file_name);
         free(output_path);
+        free(weights_x);
+        free(weights_y);
+        free(out_img_data);
         stbi_image_free(in_img_data);
         return 1;
     }
@@ -552,6 +557,9 @@ int main(int argc, char* argv[]) {
     free(file_name);
     free(output_file_name);
     free(output_path);
+    free(weights_x);
+    free(weights_y);
+    free(out_img_data);
     stbi_image_free(in_img_data);
 
     return 0;
