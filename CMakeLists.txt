@@ -27,7 +27,7 @@ target_include_directories(tinycc INTERFACE ${TINYCC_SOURCE_DIR})
 target_link_libraries(tinycc INTERFACE pthread dl)
 
 add_executable(${PROJECT_NAME}
-    "src/pixel_aa.cpp"
+    "src/pixel_aa.c"
 )
 include_directories(
     "deps/stb"
@@ -36,6 +36,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    m
     tinycc
 )
 if (USE_OPENMP)

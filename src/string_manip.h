@@ -1,4 +1,4 @@
-#include <cstring>
+#include <string.h>
 
 char* get_parent_path(const char* path) {
     char* parent_path = strdup(path);

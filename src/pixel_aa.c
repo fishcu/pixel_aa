@@ -1,9 +1,8 @@
-#include <cmath>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 // #define USE_OPENMP
 #ifdef USE_OPENMP
@@ -16,6 +15,7 @@
 #include "stb_image_write.h"
 #include "string_manip.h"
 
+#ifdef FIXED_POINT
 // We need a data type that's at least 8 bits bigger than
 // FIXED_POINT_BITS to handle multiplication with uchar and not overflow.
 // We need a signed fixed point type to deal with mix operation containing a
@@ -23,10 +23,26 @@
 // #define FIXED_POINT
 #define FIXED_POINT_BITS 8
 typedef int16_t fixed_point_t;
+typedef fixed_point_t weight_t;
 
 inline fixed_point_t float_to_fixed(float value) {
-    return static_cast<fixed_point_t>(value * (1 << FIXED_POINT_BITS));
+    return (fixed_point_t)(value * (1 << FIXED_POINT_BITS));
 }
+
+inline fixed_point_t mix(fixed_point_t x, fixed_point_t y, fixed_point_t a) {
+    return x + ((a * (y - x)) >> FIXED_POINT_BITS);
+}
+
+#define WEIGHT_TOL 1
+#define WEIGHT_TOL_UPPER ((1 << FIXED_POINT_BITS) - WEIGHT_TOL)
+#else  // !FIXED_POINT
+typedef float weight_t;
+
+inline float mix(float x, float y, float a) { return x + a * (y - x); }
+
+#define WEIGHT_TOL 1.0e-2f
+#define WEIGHT_TOL_UPPER (1.0f - WEIGHT_TOL)
+#endif  // FIXED_POINT
 
 inline float sign(float value) {
     if (value < 0.0f) {
@@ -38,25 +54,9 @@ inline float sign(float value) {
     }
 }
 
-#ifdef FIXED_POINT
-inline fixed_point_t mix(fixed_point_t x, fixed_point_t y, fixed_point_t a) {
-    return x + ((a * (y - x)) >> FIXED_POINT_BITS);
-}
-#else
-inline float mix(float x, float y, float a) { return x + a * (y - x); }
-#endif
-
 // vec3 to_lin(vec3 x) { return pow(x, vec3(2.2)); }
 
 // vec3 to_srgb(vec3 x) { return pow(x, vec3(1.0 / 2.2)); }
-
-#ifdef FIXED_POINT
-#define OFFSET_TOL 1
-#define OFFSET_TOL_UPPER ((1 << FIXED_POINT_BITS) - OFFSET_TOL)
-#else
-#define OFFSET_TOL 1.0e-2f
-#define OFFSET_TOL_UPPER (1.0f - OFFSET_TOL)
-#endif
 
 #define GET_CH(color, c) (((color) >> (8 * (2 - (c)))) & 0xFF)
 #define GET_COL(r, g, b)                                              \
@@ -86,7 +86,7 @@ int main(int argc, char* argv[]) {
     int in_width, in_height, channels;
     unsigned char* in_img_data =
         stbi_load(input_path, &in_width, &in_height, &channels, STBI_rgb_alpha);
-    if (in_img_data == nullptr) {
+    if (!in_img_data) {
         printf("Failed to load image.\n");
         return 1;
     }
@@ -134,15 +134,8 @@ int main(int argc, char* argv[]) {
         out_height >= in_height ? out_height / in_height - 1 : 0;
     // Precompute interpolation weights
     // constexpr float sharpness = 1.5f;
-#ifdef FIXED_POINT
-    fixed_point_t* weights_x =
-        (fixed_point_t*)malloc(out_width * sizeof(fixed_point_t));
-    fixed_point_t* weights_y =
-        (fixed_point_t*)malloc(out_height * sizeof(fixed_point_t));
-#else
-    float* weights_x = (float*)malloc(out_width * sizeof(float));
-    float* weights_y = (float*)malloc(out_height * sizeof(float));
-#endif
+    weight_t* weights_x = (weight_t*)malloc(out_width * sizeof(weight_t));
+    weight_t* weights_y = (weight_t*)malloc(out_height * sizeof(weight_t));
 
     for (int x = 0, in_x_error = in_width / 2 - out_width / 2 - out_width;
          x < out_width; ++x, in_x_error += in_width) {
@@ -152,14 +145,13 @@ int main(int argc, char* argv[]) {
 
         // To get phase back without calc. in_x_f, shift back by +out_width
         // again, and divide by out_width.
-        const float phase =
-            static_cast<float>(in_x_error + out_width) / out_width;
+        const float phase = (float)(in_x_error + out_width) / out_width;
 
-        const float in_x_step = static_cast<float>(in_width) / out_width;
+        const float in_x_step = (float)(in_width) / out_width;
 #ifdef FIXED_POINT
         weights_x[x] = float_to_fixed(smoothstep(
             0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase));
-#else   // FIXED_POINT
+#else   // !FIXED_POINT
         weights_x[x] =
             smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
 #endif  // FIXED_POINT
@@ -169,14 +161,13 @@ int main(int argc, char* argv[]) {
         if (in_y_error >= 0) {
             in_y_error -= out_height;
         }
-        const float phase =
-            static_cast<float>(in_y_error + out_height) / out_height;
+        const float phase = (float)(in_y_error + out_height) / out_height;
 
-        const float in_y_step = static_cast<float>(in_height) / out_height;
+        const float in_y_step = (float)(in_height) / out_height;
 #ifdef FIXED_POINT
         weights_y[y] = float_to_fixed(smoothstep(
             0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase));
-#else   // FIXED_POINT
+#else   // !FIXED_POINT
         weights_y[y] =
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
 #endif  // FIXED_POINT
@@ -212,11 +203,11 @@ int main(int argc, char* argv[]) {
                     ++in_ptr[1];
                 }
 
-                const auto offset_x = weights_x[x];
-                if (offset_x < OFFSET_TOL) {
+                const weight_t offset_x = weights_x[x];
+                if (offset_x < WEIGHT_TOL) {
                     // Need 1 sample, no mixing
                     out[out_row_offset + x] = *in_ptr[0];
-                } else if (offset_x > OFFSET_TOL_UPPER) {
+                } else if (offset_x > WEIGHT_TOL_UPPER) {
                     // Need 1 sample, no mixing
                     out[out_row_offset + x] = *in_ptr[1];
                 } else {
@@ -272,13 +263,13 @@ int main(int argc, char* argv[]) {
 
                 const int out_row_offset = y * out_width;
 
-                const auto offset_y = weights_y[y];
+                const weight_t offset_y = weights_y[y];
 
                 // Left border, offset_x = 0
                 uint32_t col;
-                if (offset_y < OFFSET_TOL) {
+                if (offset_y < WEIGHT_TOL) {
                     col = in[in_row_offset];
-                } else if (offset_y > OFFSET_TOL_UPPER) {
+                } else if (offset_y > WEIGHT_TOL_UPPER) {
                     col = in[in_row_offset + in_width];
                 } else {
                     col = GET_COL(
@@ -317,12 +308,12 @@ int main(int argc, char* argv[]) {
                     // Calc. and write output pixel
                     // Do a bilinear sampling with branching for often-occuring
                     // 0 and 1 weight samples.
-                    const auto offset_x = weights_x[x];
-                    if (offset_y < OFFSET_TOL) {
-                        if (offset_x < OFFSET_TOL) {
+                    const weight_t offset_x = weights_x[x];
+                    if (offset_y < WEIGHT_TOL) {
+                        if (offset_x < WEIGHT_TOL) {
                             // Need 1 sample, no mixing
                             out[out_row_offset + x] = *in_ptr[0];
-                        } else if (offset_x > OFFSET_TOL_UPPER) {
+                        } else if (offset_x > WEIGHT_TOL_UPPER) {
                             // Need 1 sample, no mixing
                             out[out_row_offset + x] = *in_ptr[1];
                         } else {
@@ -335,11 +326,11 @@ int main(int argc, char* argv[]) {
                                         mix(GET_CH(*in_ptr[0], 2),
                                             GET_CH(*in_ptr[1], 2), offset_x));
                         }
-                    } else if (offset_y > OFFSET_TOL_UPPER) {
-                        if (offset_x < OFFSET_TOL) {
+                    } else if (offset_y > WEIGHT_TOL_UPPER) {
+                        if (offset_x < WEIGHT_TOL) {
                             // Need 1 sample, no mixing
                             out[out_row_offset + x] = *in_ptr[2];
-                        } else if (offset_x > OFFSET_TOL_UPPER) {
+                        } else if (offset_x > WEIGHT_TOL_UPPER) {
                             // Need 1 sample, no mixing
                             out[out_row_offset + x] = *in_ptr[3];
                         } else {
@@ -353,7 +344,7 @@ int main(int argc, char* argv[]) {
                                             GET_CH(*in_ptr[3], 2), offset_x));
                         }
                     } else {
-                        if (offset_x < OFFSET_TOL) {
+                        if (offset_x < WEIGHT_TOL) {
                             // Need 2 samples, mix with offset_y
                             out[out_row_offset + x] =
                                 GET_COL(mix(GET_CH(*in_ptr[0], 0),
@@ -362,7 +353,7 @@ int main(int argc, char* argv[]) {
                                             GET_CH(*in_ptr[2], 1), offset_y),
                                         mix(GET_CH(*in_ptr[0], 2),
                                             GET_CH(*in_ptr[2], 2), offset_y));
-                        } else if (offset_x > OFFSET_TOL_UPPER) {
+                        } else if (offset_x > WEIGHT_TOL_UPPER) {
                             // Need 2 samples, mix with offset_y
                             out[out_row_offset + x] =
                                 GET_COL(mix(GET_CH(*in_ptr[1], 0),
@@ -394,9 +385,9 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Right border, offset_x = 1
-                if (offset_y < OFFSET_TOL) {
+                if (offset_y < WEIGHT_TOL) {
                     col = in[in_row_offset + in_width - 1];
-                } else if (offset_y > OFFSET_TOL_UPPER) {
+                } else if (offset_y > WEIGHT_TOL_UPPER) {
                     col = in[in_row_offset + 2 * in_width - 1];
                 } else {
                     col = GET_COL(
@@ -440,11 +431,11 @@ int main(int argc, char* argv[]) {
                     ++in_ptr[1];
                 }
 
-                const auto offset_x = weights_x[x];
-                if (offset_x < OFFSET_TOL) {
+                const weight_t offset_x = weights_x[x];
+                if (offset_x < WEIGHT_TOL) {
                     // Need 1 sample, no mixing
                     out[out_row_offset + x] = *in_ptr[0];
-                } else if (offset_x > OFFSET_TOL_UPPER) {
+                } else if (offset_x > WEIGHT_TOL_UPPER) {
                     // Need 1 sample, no mixing
                     out[out_row_offset + x] = *in_ptr[1];
                 } else {
