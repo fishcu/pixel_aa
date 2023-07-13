@@ -3,6 +3,7 @@ set(PROJECT_NAME "pixel_aa")
 project(${PROJECT_NAME})
 
 option(BUILD_FOR_MM "Enable build for Miyoo Mini" OFF)
+option(USE_OPENMP "Enable OpenMP multithreading" OFF)
 
 if (BUILD_FOR_MM)
     message(STATUS "Building for MM, cross compile var is $ENV{CROSS_COMPILE}") 
@@ -10,7 +11,9 @@ if (BUILD_FOR_MM)
     set(CMAKE_CXX_COMPILER "$ENV{CROSS_COMPILE}g++")
 endif()
 
-find_package(OpenMP)
+if (USE_OPENMP)
+    find_package(OpenMP)
+endif()
 
 set(TINYCC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/tinycc)
 if (BUILD_FOR_MM)
@@ -35,6 +38,12 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 target_link_libraries(${PROJECT_NAME} PRIVATE
     tinycc
 )
+if (USE_OPENMP)
+    target_compile_definitions(${PROJECT_NAME}
+        PRIVATE
+        "USE_OPENMP"
+    )
+endif()
 if (BUILD_FOR_MM)
     target_compile_options(${PROJECT_NAME}
         PRIVATE
@@ -47,10 +56,12 @@ if (BUILD_FOR_MM)
         "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
         "-fopenmp"
     )
-    target_link_options(${PROJECT_NAME}
-        PRIVATE
-        "-fopenmp"
-    )
+    if (USE_OPENMP)
+        target_link_options(${PROJECT_NAME}
+            PRIVATE
+            "-fopenmp"
+        )
+    endif()
     target_compile_definitions(${PROJECT_NAME}
         PRIVATE
         "BUILD_FOR_MM"
@@ -66,7 +77,7 @@ else()
         "-finline-functions"
         "-funroll-loops"
     )
-    if(OpenMP_CXX_FOUND)
+    if(USE_OPENMP AND OpenMP_CXX_FOUND)
         target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
     endif()
 endif()
