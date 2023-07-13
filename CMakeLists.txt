@@ -15,6 +15,10 @@ if (USE_OPENMP)
     find_package(OpenMP)
 endif()
 
+include_directories(
+    "deps/stb"
+)
+
 set(TINYCC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/tinycc)
 if (BUILD_FOR_MM)
     set(TINYCC_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib_tcc/arm)
@@ -28,9 +32,6 @@ target_link_libraries(tinycc INTERFACE pthread dl)
 
 add_executable(${PROJECT_NAME}
     "src/pixel_aa.c"
-)
-include_directories(
-    "deps/stb"
 )
 set_target_properties(${PROJECT_NAME} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
@@ -81,5 +82,39 @@ else()
     if(USE_OPENMP AND OpenMP_CXX_FOUND)
         target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
     endif()
+endif()
+
+add_executable(jit_test
+    "src/jit.c"
+)
+target_link_libraries(jit_test PRIVATE
+    m
+    tinycc
+)
+if (BUILD_FOR_MM)
+    target_compile_options(jit_test
+        PRIVATE
+        "-Wall"
+        "-pedantic"
+        "-O3"
+        "-finline-functions"
+        "-funroll-loops"
+        "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
+        "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+    )
+    target_compile_definitions(jit_test
+        PRIVATE
+        "BUILD_FOR_MM"
+    )
+else()
+    target_compile_options(jit_test
+        PRIVATE
+        "-Wall"
+        "-pedantic"
+        "-O3"
+        "-finline-functions"
+        "-funroll-loops"
+        "-march=native"
+    )
 endif()
 
