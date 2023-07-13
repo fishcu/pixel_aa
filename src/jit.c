@@ -213,7 +213,7 @@ int main(int argc, char* argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &end);
     duration_ms = (end.tv_sec - start.tv_sec) * 1000 +
                   (end.tv_nsec - start.tv_nsec) / 1000000;
-    printf("Time for %d passes: %ld ms, that is %f ms per pass.\n",
+    printf("Time for %d passes: %d ms, that is %f ms per pass.\n",
            num_perf_passes, duration_ms, (float)duration_ms / num_perf_passes);
 
     // Save the resulting image
