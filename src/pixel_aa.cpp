@@ -14,49 +14,7 @@
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
-
-char* get_parent_path(const char* path) {
-    char* parent_path = strdup(path);
-    char* last_separator = strrchr(parent_path, '/');
-    if (last_separator != NULL) {
-        *last_separator = '\0';
-    }
-    return parent_path;
-}
-
-char* get_filename(const char* path) {
-    const char* last_separator = strrchr(path, '/');
-    if (last_separator != NULL) {
-        return strdup(last_separator + 1);
-    }
-    return strdup(path);
-}
-
-char* remove_extension(const char* filename) {
-    const char* extension_pos = strchr(filename, '.');
-    if (extension_pos != NULL) {
-        char* name_without_extension =
-            (char*)malloc((extension_pos - filename + 1) * sizeof(char));
-        strncpy(name_without_extension, filename, extension_pos - filename);
-        name_without_extension[extension_pos - filename] = '\0';
-        return name_without_extension;
-    }
-    return strdup(filename);
-}
-
-char* get_output_path(const char* directory, const char* output_file_name) {
-    size_t directory_length = strlen(directory);
-    size_t filename_length = strlen(output_file_name);
-    const char* output_suffix = "_output.png";
-    char* output_path = (char*)malloc(
-        (directory_length + 1 + filename_length + strlen(output_suffix)) *
-        sizeof(char));
-    strcpy(output_path, directory);
-    strcat(output_path, "/");
-    strcat(output_path, output_file_name);
-    strcat(output_path, output_suffix);
-    return output_path;
-}
+#include "string_manip.h"
 
 // We need a data type that's at least 8 bits bigger than
 // FIXED_POINT_BITS to handle multiplication with uchar and not overflow.
@@ -126,9 +84,9 @@ int main(int argc, char* argv[]) {
 
     const char* input_path = argv[1];
     int in_width, in_height, channels;
-    unsigned char* in_img_data_uchar =
+    unsigned char* in_img_data =
         stbi_load(input_path, &in_width, &in_height, &channels, STBI_rgb_alpha);
-    if (in_img_data_uchar == nullptr) {
+    if (in_img_data == nullptr) {
         printf("Failed to load image.\n");
         return 1;
     }
@@ -138,7 +96,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     channels = 4;
-    uint32_t* in_img_data = reinterpret_cast<uint32_t*>(in_img_data_uchar);
+    uint32_t* in = (uint32_t*)(in_img_data);
 
     printf("Image loaded successfully.\n");
     printf("Image width: %d\n", in_width);
@@ -150,7 +108,7 @@ int main(int argc, char* argv[]) {
     const int out_height = atoi(argv[3]);
     if (out_width < in_width || out_height < in_height) {
         printf("Error: Target size is smaller than the input image size.\n");
-        stbi_image_free(in_img_data_uchar);
+        stbi_image_free(in_img_data);
         return 1;
     }
     const int output_size = out_width * out_height * channels;
@@ -237,13 +195,13 @@ int main(int argc, char* argv[]) {
 
             // Top left corner, offset_x = 0
             for (int x = 0; x < border_x; ++x) {
-                out[out_row_offset + x] = in_img_data[0];
+                out[out_row_offset + x] = in[0];
             }
 
             // Middle part of top bar
             int in_x_error =
                 in_width / 2 - out_width / 2 - out_width + in_width * border_x;
-            uint32_t* in_ptr[2] = {in_img_data, in_img_data + 1};
+            uint32_t* in_ptr[2] = {in, in + 1};
             for (int x = border_x; x < out_width - border_x;
                  ++x, in_x_error += in_width) {
                 // Update samples when we've moved enough.
@@ -275,7 +233,7 @@ int main(int argc, char* argv[]) {
 
             // Top right corner, offset_x = 1
             for (int x = out_width - border_x; x < out_width; ++x) {
-                out[out_row_offset + x] = in_img_data[in_width - 1];
+                out[out_row_offset + x] = in[in_width - 1];
             }
         }
 
@@ -319,20 +277,17 @@ int main(int argc, char* argv[]) {
                 // Left border, offset_x = 0
                 uint32_t col;
                 if (offset_y < OFFSET_TOL) {
-                    col = in_img_data[in_row_offset];
+                    col = in[in_row_offset];
                 } else if (offset_y > OFFSET_TOL_UPPER) {
-                    col = in_img_data[in_row_offset + in_width];
+                    col = in[in_row_offset + in_width];
                 } else {
                     col = GET_COL(
-                        mix(GET_CH(in_img_data[in_row_offset], 0),
-                            GET_CH(in_img_data[in_row_offset + in_width], 0),
-                            offset_y),
-                        mix(GET_CH(in_img_data[in_row_offset], 1),
-                            GET_CH(in_img_data[in_row_offset + in_width], 1),
-                            offset_y),
-                        mix(GET_CH(in_img_data[in_row_offset], 2),
-                            GET_CH(in_img_data[in_row_offset + in_width], 2),
-                            offset_y));
+                        mix(GET_CH(in[in_row_offset], 0),
+                            GET_CH(in[in_row_offset + in_width], 0), offset_y),
+                        mix(GET_CH(in[in_row_offset], 1),
+                            GET_CH(in[in_row_offset + in_width], 1), offset_y),
+                        mix(GET_CH(in[in_row_offset], 2),
+                            GET_CH(in[in_row_offset + in_width], 2), offset_y));
                 }
                 for (int x = 0; x < border_x; ++x) {
                     out[out_row_offset + x] = col;
@@ -342,11 +297,10 @@ int main(int argc, char* argv[]) {
                 // and update them lazily.
                 int in_x_error = in_width / 2 - out_width / 2 - out_width +
                                  in_width * border_x;
-                uint32_t* in_ptr[4] = {
-                    in_img_data + in_row_offset,
-                    in_img_data + in_row_offset + 1,
-                    in_img_data + in_row_offset + in_width,
-                    in_img_data + in_row_offset + in_width + 1};
+                uint32_t* in_ptr[4] = {in + in_row_offset,
+                                       in + in_row_offset + 1,
+                                       in + in_row_offset + in_width,
+                                       in + in_row_offset + in_width + 1};
                 // Center part of image
                 for (int x = border_x; x < out_width - border_x;
                      ++x, in_x_error += in_width) {
@@ -441,28 +395,19 @@ int main(int argc, char* argv[]) {
 
                 // Right border, offset_x = 1
                 if (offset_y < OFFSET_TOL) {
-                    col = in_img_data[in_row_offset + in_width - 1];
+                    col = in[in_row_offset + in_width - 1];
                 } else if (offset_y > OFFSET_TOL_UPPER) {
-                    col = in_img_data[in_row_offset + 2 * in_width - 1];
+                    col = in[in_row_offset + 2 * in_width - 1];
                 } else {
                     col = GET_COL(
-                        mix(GET_CH(in_img_data[in_row_offset + in_width - 1],
-                                   0),
-                            GET_CH(
-                                in_img_data[in_row_offset + 2 * in_width - 1],
-                                0),
+                        mix(GET_CH(in[in_row_offset + in_width - 1], 0),
+                            GET_CH(in[in_row_offset + 2 * in_width - 1], 0),
                             offset_y),
-                        mix(GET_CH(in_img_data[in_row_offset + in_width - 1],
-                                   1),
-                            GET_CH(
-                                in_img_data[in_row_offset + 2 * in_width - 1],
-                                1),
+                        mix(GET_CH(in[in_row_offset + in_width - 1], 1),
+                            GET_CH(in[in_row_offset + 2 * in_width - 1], 1),
                             offset_y),
-                        mix(GET_CH(in_img_data[in_row_offset + in_width - 1],
-                                   2),
-                            GET_CH(
-                                in_img_data[in_row_offset + 2 * in_width - 1],
-                                2),
+                        mix(GET_CH(in[in_row_offset + in_width - 1], 2),
+                            GET_CH(in[in_row_offset + 2 * in_width - 1], 2),
                             offset_y));
                 }
                 for (int x = out_width - border_x; x < out_width; ++x) {
@@ -478,14 +423,13 @@ int main(int argc, char* argv[]) {
 
             // Bottom left corner, offset_x = 0
             for (int x = 0; x < border_x; ++x) {
-                out[out_row_offset + x] = in_img_data[in_row_offset];
+                out[out_row_offset + x] = in[in_row_offset];
             }
 
             // Middle part of bottom bar
             int in_x_error =
                 in_width / 2 - out_width / 2 - out_width + in_width * border_x;
-            uint32_t* in_ptr[2] = {in_img_data + in_row_offset,
-                                   in_img_data + in_row_offset + 1};
+            uint32_t* in_ptr[2] = {in + in_row_offset, in + in_row_offset + 1};
             for (int x = border_x; x < out_width - border_x;
                  ++x, in_x_error += in_width) {
                 // Update samples when we've moved enough.
@@ -517,8 +461,7 @@ int main(int argc, char* argv[]) {
 
             // Bottom right corner, offset_x = 1
             for (int x = out_width - border_x; x < out_width; ++x) {
-                out[out_row_offset + x] =
-                    in_img_data[in_row_offset + in_width - 1];
+                out[out_row_offset + x] = in[in_row_offset + in_width - 1];
             }
         }
     }
@@ -534,7 +477,6 @@ int main(int argc, char* argv[]) {
     char* file_name = get_filename(input_path);
     char* output_file_name = remove_extension(file_name);
     char* output_path = get_output_path(directory, output_file_name);
-
     printf("Saving output image to path: %s\n", output_path);
 
     if (stbi_write_png(output_path, out_width, out_height, channels,
