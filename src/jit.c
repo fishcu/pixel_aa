@@ -153,20 +153,34 @@ int main(int argc, char* argv[]) {
     // Build the kernel source as string by emitting C source code.
     DynamicString source_code;
     init(&source_code);
-    add_string(
+    add_fmt_string(
         &source_code,
         "#include <stdint.h>\n"
-        "void kernel(const uint32_t* restrict in, uint32_t* restrict out) {\n");
-    for (int y = 0; y < out_height; ++y) {
-        for (int x = 0; x < out_width; ++x) {
-            int in_x = x * (float)in_width / out_width;
-            int in_y = y * (float)in_height / out_height;
-            add_fmt_string(&source_code, "\tout[%d] = in[%d];\n",
-                           y * out_width + x, in_y * in_width + in_x);
-        }
+        "void kernel(const uint32_t* restrict in, uint32_t* restrict out) {\n"
+        "\tfor(int y = 0; y < %d; ++y) {\n"
+        "\t\tconst int out_y_offset = y * %d;\n"
+        "\t\tconst int in_y_offset = (int)(y * %ff) * %d;\n",
+        out_height, out_width, (float)in_height / out_height, in_width);
+    for (int x = 0; x < out_width; ++x) {
+        int in_x = x * (float)in_width / out_width;
+        add_fmt_string(&source_code, "\t\tout[out_y_offset + %d] = in[in_y_offset + %d];\n", x,
+                       in_x);
     }
-    add_string(&source_code, "}\n");
-    // printf("%s", source_code.str);
+    add_string(&source_code,
+               "\t}\n"
+               "}\n");
+    printf("%s", source_code.str);
+
+    /*
+    for (int y = 0; y < number; ++y) {
+        const int out_y_offset = y * number;
+        const int in_y_offset = y * float * number;
+        out[out_y_offset + number] = in[in_y_offset + number];
+        out[out_y_offset + number] = in[in_y_offset + number];
+        out[out_y_offset + number] = in[in_y_offset + number];
+        // ...
+    }
+    */
 
     printf("JIT compilation started...\n");
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -197,7 +211,7 @@ int main(int argc, char* argv[]) {
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     int duration_ms = (end.tv_sec - start.tv_sec) * 1000 +
-                       (end.tv_nsec - start.tv_nsec) / 1000000;
+                      (end.tv_nsec - start.tv_nsec) / 1000000;
     printf("JIT compilation finished. Time elapsed: %d ms\n", duration_ms);
 
     // Measure performance
