@@ -16,6 +16,37 @@
 
 #include "string_manip.h"
 
+void kernel_static(uint32_t* restrict in, uint32_t* restrict out, int in_width,
+                   int in_height, int out_width, int out_height) {
+    for (int y = 0; y < out_height; ++y) {
+        const int out_y_offset = y * out_width;
+        const int in_y = y * (float)in_height / out_height;
+        const int in_y_offset = in_y * in_width;
+        for (int x = 0; x < out_width; ++x) {
+            const int in_x = x * (float)in_width / out_width;
+            out[out_y_offset + x] = in[in_y_offset + in_x];
+        }
+    }
+}
+
+// Used for finding "cycle length" of repeating pixel offsets
+// Between input and output.
+int gcd(int a, int b) {
+    if (b > a) {
+        int temp = a;
+        a = b;
+        b = temp;
+    }
+
+    while (b != 0) {
+        int remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+
+    return a;
+}
+
 typedef struct {
     char* str;
     int allocated_size;
@@ -150,47 +181,136 @@ int main(int argc, char* argv[]) {
     }
     tcc_set_output_type(tcc, TCC_OUTPUT_MEMORY);
 
+    // Kernel that we're jitting:
+    // clang-format off
+    /*
+    #include <stdint.h>
+    void kernel(const uint32_t* restrict in, uint32_t* restrict out) {
+        for (int y = 0, out_y_offset = 0, in_y_offset = 0; y < %d; ++y) {
+            for (int y = 0, out_y_offset = 0, in_y_offset = 0; y < out_height / y_cycle_len; ++y) {
+        for (int x = 0, in_x = 0; x < out_width; x += x_cycle len, in_x += x_in_advance) {
+            out[out_y_offset + number] = in[in_y_offset + number];
+            out[out_y_offset + number] = in[in_y_offset + number];
+            out[out_y_offset + number] = in[in_y_offset + number];
+            // Complete up to cycle_length statements
+        }
+        out_y_offset += <number>;
+        in_y_offset += <number>;
+        // Repeat this inner block <y cycle length> times.
+    }
+    */
+    // clang-format on
+
+    const int x_cycle_length = out_width / gcd(out_width, in_width);
+    const int x_in_advance = in_width / gcd(out_width, in_width);
+    const int y_cycle_length = out_height / gcd(out_height, in_height);
+    // const int y_in_advance = in_height / gcd(out_height, in_height);
+
+#if 1
+    const char* source =
+        "#include <stdint.h>\n"
+        "static inline void fill_row(const uint32_t* restrict in, uint32_t* "
+        "restrict out,\n"
+        "                            int out_y_offset, int in_y_offset) {\n"
+        "    for (int x = 0, in_x = 0; x < 640; x += 5, in_x += 2) {\n"
+        "        out[out_y_offset + x] = out[out_y_offset + x + 1] =\n"
+        "            out[out_y_offset + x + 2] = in[in_y_offset + in_x + 0];\n"
+        "        out[out_y_offset + x + 3] = out[out_y_offset + x + 4] =\n"
+        "            in[in_y_offset + in_x + 1];\n"
+        "    }\n"
+        "}\n"
+        "void kernel(const uint32_t* restrict in, uint32_t* restrict out) {\n"
+        "    for (int y = 0, out_y_offset = 0, in_y_offset = 0; y < 32; ++y) "
+        "{\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        fill_row(in, out, out_y_offset, in_y_offset);\n"
+        "        out_y_offset += 640;\n"
+        "        in_y_offset += 256;\n"
+        "    }\n"
+        "}\n";
+#endif
+
     // Build the kernel source as string by emitting C source code.
+#if 0
     DynamicString source_code;
     init(&source_code);
     add_fmt_string(
         &source_code,
         "#include <stdint.h>\n"
         "void kernel(const uint32_t* restrict in, uint32_t* restrict out) {\n"
-        "\tfor(int y = 0; y < %d; ++y) {\n"
-        "\t\tconst int out_y_offset = y * %d;\n"
-        "\t\tconst int in_y_offset = (int)(y * %ff) * %d;\n",
-        out_height, out_width, (float)in_height / out_height, in_width);
-    for (int x = 0; x < out_width; ++x) {
-        int in_x = x * (float)in_width / out_width;
-        add_fmt_string(&source_code, "\t\tout[out_y_offset + %d] = in[in_y_offset + %d];\n", x,
-                       in_x);
+        "\tfor (int y = 0, out_y_offset = 0, in_y_offset = 0; y < %d; ++y) {\n",
+        out_height / y_cycle_length);
+    // Emit y_cycle_length blocks of for loops over x
+    int last_emitted_in_i = 0;
+    for (int i = 0; i < y_cycle_length; ++i) {
+        add_fmt_string(
+            &source_code,
+            "\t\tfor (int x = 0, in_x = 0; x < %d; x += %d, in_x += %d) {\n",
+            out_width, x_cycle_length, x_in_advance);
+        // Emit x_cycle_length copy operations
+        for (int j = 0; j < x_cycle_length; ++j) {
+            int in_j = j * (float)in_width / out_width;
+            add_fmt_string(&source_code,
+                           "\t\t\tout[out_y_offset + x + %d] = in[in_y_offset "
+                           "+ in_x + %d];\n",
+                           j, in_j);
+        }
+        add_string(&source_code, "\t\t}\n");
+        add_fmt_string(&source_code, "\t\tout_y_offset += %d;\n", out_width);
+        int in_i = (i + 1) * (float)in_height / out_height;
+        if (in_i > last_emitted_in_i || i == y_cycle_length - 1) {
+            last_emitted_in_i = in_i;
+            add_fmt_string(&source_code, "\t\tin_y_offset += %d;\n", in_width);
+        }
     }
     add_string(&source_code,
                "\t}\n"
                "}\n");
     printf("%s", source_code.str);
-
-    /*
-    for (int y = 0; y < number; ++y) {
-        const int out_y_offset = y * number;
-        const int in_y_offset = y * float * number;
-        out[out_y_offset + number] = in[in_y_offset + number];
-        out[out_y_offset + number] = in[in_y_offset + number];
-        out[out_y_offset + number] = in[in_y_offset + number];
-        // ...
-    }
-    */
+#endif
 
     printf("JIT compilation started...\n");
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    if (tcc_compile_string(tcc, source_code.str) != 0) {
+    if (tcc_compile_string(tcc, source) != 0) {
         printf("Failed to compile!\n");
         tcc_delete(tcc);
         return 1;
     }
-    destroy(&source_code);
+    // destroy(&source_code);
     if (tcc_add_library(tcc, "m") != 0) {
         printf("Failed to add library!\n");
         tcc_delete(tcc);
@@ -219,7 +339,7 @@ int main(int argc, char* argv[]) {
     const int num_perf_passes = 1000;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    // Iterate over all pixels in the output image
+    // Measure the JITted kernel
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
         kernel(in, out);
     }
@@ -229,6 +349,19 @@ int main(int argc, char* argv[]) {
                   (end.tv_nsec - start.tv_nsec) / 1000000;
     printf("Time for %d passes: %d ms, that is %f ms per pass.\n",
            num_perf_passes, duration_ms, (float)duration_ms / num_perf_passes);
+
+#if 1
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    // Measure the static kernel
+    for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
+        kernel_static(in, out, in_width, in_height, out_width, out_height);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    duration_ms = (end.tv_sec - start.tv_sec) * 1000 +
+                  (end.tv_nsec - start.tv_nsec) / 1000000;
+    printf("Time to beat: %d ms, that is %f ms per pass.\n", duration_ms,
+           (float)duration_ms / num_perf_passes);
+#endif
 
     // Save the resulting image
     char* directory = get_parent_path(input_path);
