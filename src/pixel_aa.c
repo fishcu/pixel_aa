@@ -78,6 +78,32 @@ float slopestep(float edge0, float edge1, float x, float slope) {
     return o - 0.5f * s * pow(2.0f * (o - s * x), slope);
 }
 
+// Bresenham error when starting at iteration "start".
+inline int get_starting_error(int start, int in_size, int out_size) {
+    return ((in_size / 2 - out_size / 2 - out_size + start * in_size +
+             out_size) %
+            out_size) -
+           out_size;
+}
+
+// Used for finding "cycle length" of repeating pixel offsets
+// Between input and output.
+int gcd(int a, int b) {
+    if (b > a) {
+        int temp = a;
+        a = b;
+        b = temp;
+    }
+
+    while (b != 0) {
+        int remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+
+    return a;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 4) {
         printf("Usage: %s <input_path> <target_width> <target_height>\n",
@@ -135,13 +161,18 @@ int main(int argc, char* argv[]) {
     const int border_x = out_width >= in_width ? out_width / in_width - 1 : 0;
     const int border_y =
         out_height >= in_height ? out_height / in_height - 1 : 0;
-    // Precompute interpolation weights
-    // constexpr float sharpness = 1.5f;
-    weight_t* weights_x = (weight_t*)malloc(out_width * sizeof(weight_t));
-    weight_t* weights_y = (weight_t*)malloc(out_height * sizeof(weight_t));
 
-    for (int x = 0, in_x_error = in_width / 2 - out_width / 2 - out_width;
-         x < out_width; ++x, in_x_error += in_width) {
+    // Precompute interpolation weights. They are going to repeat in a pattern.
+    // constexpr float sharpness = 1.5f;
+    const int weights_cycle_x = out_width / gcd(out_width, in_width);
+    const int weights_cycle_y = out_height / gcd(out_height, in_height);
+    printf("cycles: %d %d\n", weights_cycle_x, weights_cycle_y);
+    weight_t* weights_x = (weight_t*)malloc(weights_cycle_x * sizeof(weight_t));
+    weight_t* weights_y = (weight_t*)malloc(weights_cycle_y * sizeof(weight_t));
+
+    for (int x = weights_cycle_x, in_x_error = get_starting_error(
+                                      weights_cycle_x, in_width, out_width);
+         x < 2 * weights_cycle_x; ++x, in_x_error += in_width) {
         if (in_x_error >= 0) {
             in_x_error -= out_width;
         }
@@ -152,15 +183,16 @@ int main(int argc, char* argv[]) {
 
         const float in_x_step = (float)(in_width) / out_width;
 #ifdef FIXED_POINT
-        weights_x[x] = float_to_fixed(smoothstep(
+        weights_x[x % weights_cycle_x] = float_to_fixed(smoothstep(
             0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase));
 #else   // !FIXED_POINT
-        weights_x[x] =
+        weights_x[x % weights_cycle_x] =
             smoothstep(0.5f - in_x_step * 0.5f, 0.5f + in_x_step * 0.5f, phase);
 #endif  // FIXED_POINT
+        printf("x=%d\tw_x=%.3f\n", x % weights_cycle_x, weights_x[x % weights_cycle_x]);
     }
-    for (int y = 0, in_y_error = in_height / 2 - out_height / 2 - out_height;
-         y < out_height; ++y, in_y_error += in_height) {
+    for (int y = weights_cycle_y, in_y_error = get_starting_error(weights_cycle_y, in_height, out_height);
+         y < 2 * weights_cycle_y; ++y, in_y_error += in_height) {
         if (in_y_error >= 0) {
             in_y_error -= out_height;
         }
@@ -168,10 +200,10 @@ int main(int argc, char* argv[]) {
 
         const float in_y_step = (float)(in_height) / out_height;
 #ifdef FIXED_POINT
-        weights_y[y] = float_to_fixed(smoothstep(
+        weights_y[y % weights_cycle_y] = float_to_fixed(smoothstep(
             0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase));
 #else   // !FIXED_POINT
-        weights_y[y] =
+        weights_y[y % weights_cycle_y] =
             smoothstep(0.5f - in_y_step * 0.5f, 0.5f + in_y_step * 0.5f, phase);
 #endif  // FIXED_POINT
     }
@@ -206,7 +238,7 @@ int main(int argc, char* argv[]) {
                     ++in_ptr[1];
                 }
 
-                const weight_t offset_x = weights_x[x];
+                const weight_t offset_x = weights_x[x % weights_cycle_x];
                 if (offset_x < WEIGHT_TOL) {
                     // Need 1 sample, no mixing
                     out[out_row_offset + x] = *in_ptr[0];
@@ -266,7 +298,7 @@ int main(int argc, char* argv[]) {
 
                 const int out_row_offset = y * out_width;
 
-                const weight_t offset_y = weights_y[y];
+                const weight_t offset_y = weights_y[y % weights_cycle_y];
 
                 // Left border, offset_x = 0
                 uint32_t col;
@@ -311,7 +343,7 @@ int main(int argc, char* argv[]) {
                     // Calc. and write output pixel
                     // Do a bilinear sampling with branching for often-occuring
                     // 0 and 1 weight samples.
-                    const weight_t offset_x = weights_x[x];
+                    const weight_t offset_x = weights_x[x % weights_cycle_x];
                     if (offset_y < WEIGHT_TOL) {
                         if (offset_x < WEIGHT_TOL) {
                             // Need 1 sample, no mixing
@@ -434,7 +466,7 @@ int main(int argc, char* argv[]) {
                     ++in_ptr[1];
                 }
 
-                const weight_t offset_x = weights_x[x];
+                const weight_t offset_x = weights_x[x % weights_cycle_x];
                 if (offset_x < WEIGHT_TOL) {
                     // Need 1 sample, no mixing
                     out[out_row_offset + x] = *in_ptr[0];
