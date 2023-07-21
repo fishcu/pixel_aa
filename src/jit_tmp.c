@@ -1,13 +1,16 @@
 #include <stdint.h>
 static inline void fill_row(const uint32_t* restrict in,
                             uint32_t* restrict out) {
-    for (int x = 128; x > 0; --x) {
-        *out++ = *in;
-        *out++ = *in;
-        *out++ = *in++;
-        *out++ = *in;
-        *out++ = *in++;
-    }
+    int x = 127;
+    do {
+        out[0] = in[0];
+        out[1] = in[0];
+        out[2] = in[0];
+        out[3] = in[1];
+        out[4] = in[1];
+        out += 5;
+        in += 2;
+    } while (x--);
 }
 void kernel(const uint32_t* restrict in_ptr, uint32_t* restrict out_ptr) {
     const uint32_t* restrict in = in_ptr;

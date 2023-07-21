@@ -16,6 +16,7 @@
 
 #include "string_manip.h"
 
+/*
 void kernel_static(uint32_t* restrict in, uint32_t* restrict out, int in_width,
                    int in_height, int out_width, int out_height) {
     for (int y = 0; y < out_height; ++y) {
@@ -26,6 +27,75 @@ void kernel_static(uint32_t* restrict in, uint32_t* restrict out, int in_width,
             const int in_x = x * (float)in_width / out_width;
             out[out_y_offset + x] = in[in_y_offset + in_x];
         }
+    }
+}
+*/
+
+static inline void fill_row(const uint32_t* restrict in,
+                            uint32_t* restrict out) {
+    int x = 128;
+    do {
+        // Inline assembly block for memory copies
+        __asm__ __volatile__(
+            "ldr r2, [%[in]]       \n\t"
+            "ldr r1, [%[in], #4]   \n\t"
+
+            "str r2, [%[out]]      \n\t"
+            "str r2, [%[out], #4]  \n\t"
+            "str r2, [%[out], #8]  \n\t"
+            "str r1, [%[out], #12] \n\t"
+
+            :
+            : [ in ] "r"(in), [ out ] "r"(out)
+            : "r1", "r2");
+        // Increment pointers for the next iteration
+        in += 2;
+        out += 5;
+    } while (--x);
+}
+
+void kernel_static(const uint32_t* restrict in_ptr,
+                   uint32_t* restrict out_ptr) {
+    const uint32_t* restrict in = in_ptr;
+    uint32_t* restrict out = out_ptr;
+    for (int y = 32; y > 0; --y) {
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
+        fill_row(in, out);
+        out += 640;
+        fill_row(in, out);
+        out += 640;
+        in += 256;
     }
 }
 
@@ -211,13 +281,23 @@ int main(int argc, char* argv[]) {
         "#include <stdint.h>\n"
         "static inline void fill_row(const uint32_t* restrict in,\n"
         "                            uint32_t* restrict out) {\n"
-        "    for (int x = 128; x > 0; --x) {\n"
-        "        *out++ = *in;\n"
-        "        *out++ = *in;\n"
-        "        *out++ = *in++;\n"
-        "        *out++ = *in;\n"
-        "        *out++ = *in++;\n"
-        "    }\n"
+        "    int x = 128;\n"
+        "    do {\n"
+        "        __asm__ __volatile__(\n"
+        "            \"ldr r2, %[in]       \\n\\t\"\n"
+        "            \"ldr r1, %[in], #4   \\n\\t\"\n"
+        "\n"
+        "            \"str r2, %[out]      \\n\\t\"\n"
+        "            \"str r2, %[out], #4  \\n\\t\"\n"
+        "            \"str r2, %[out], #8  \\n\\t\"\n"
+        "            \"str r1, %[out], #12 \\n\\t\"\n"
+        "\n"
+        "            :\n"
+        "            : [ in ] \"r\"(in), [ out ] \"r\"(out)\n"
+        "            : \"r1\", \"r2\");\n"
+        "        in += 2;\n"
+        "        out += 5;\n"
+        "    } while (--x);\n"
         "}\n"
         "void kernel(const uint32_t* restrict in_ptr, uint32_t* restrict "
         "out_ptr) {\n"
@@ -356,7 +436,7 @@ int main(int argc, char* argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &start);
     // Measure the static kernel
     for (int perf_pass = 0; perf_pass < num_perf_passes; ++perf_pass) {
-        kernel_static(in, out, in_width, in_height, out_width, out_height);
+        kernel_static(in, out /*, in_width, in_height, out_width, out_height*/);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     duration_ms = (end.tv_sec - start.tv_sec) * 1000 +
