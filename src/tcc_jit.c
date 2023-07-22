@@ -33,25 +33,16 @@ void kernel_static(uint32_t* restrict in, uint32_t* restrict out, int in_width,
 
 static inline void fill_row(const uint32_t* restrict in,
                             uint32_t* restrict out) {
-    int x = 128;
+    int x = 127;
     do {
-        // Inline assembly block for memory copies
-        __asm__ __volatile__(
-            "ldr r2, [%[in]]       \n\t"
-            "ldr r1, [%[in], #4]   \n\t"
-
-            "str r2, [%[out]]      \n\t"
-            "str r2, [%[out], #4]  \n\t"
-            "str r2, [%[out], #8]  \n\t"
-            "str r1, [%[out], #12] \n\t"
-
-            :
-            : [ in ] "r"(in), [ out ] "r"(out)
-            : "r1", "r2");
-        // Increment pointers for the next iteration
-        in += 2;
+        out[0] = in[0];
+        out[1] = in[0];
+        out[2] = in[0];
+        out[3] = in[1];
+        out[4] = in[1];
         out += 5;
-    } while (--x);
+        in += 2;
+    } while (x--);
 }
 
 void kernel_static(const uint32_t* restrict in_ptr,

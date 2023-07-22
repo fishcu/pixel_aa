@@ -118,7 +118,8 @@ else()
     )
 endif()
 
-find_package(ZLIB REQUIRED)
+add_subdirectory(deps/zlib)
+add_library(ZLIB::ZLIB ALIAS zlib)
 
 set(LLVM_DIR "/root/workspace/stage/lib/cmake/llvm")
 find_package(LLVM REQUIRED CONFIG)
@@ -126,8 +127,9 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 add_executable(llvm_jit
-    "src/llvm_jit.c"
+    "src/llvm_jit.cpp"
 )
+target_compile_features(llvm_jit PRIVATE cxx_std_17)
 # target_link_libraries(llvm_jit PRIVATE
 
 # )
