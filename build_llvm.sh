@@ -7,15 +7,18 @@ mkdir -p ~/workspace/stage
 mkdir -p ~/sysroot/bin
 mkdir -p ~/sysroot/include
 mkdir -p ~/sysroot/lib
-ln -s /opt/miyoomini-toolchain/usr/bin/* ~/sysroot/bin/
-ln -s /opt/miyoomini-toolchain/usr/include/* ~/sysroot/include/
-ln -s /opt/miyoomini-toolchain/usr/lib/* ~/sysroot/lib/
-ln -s /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/bin/* ~/sysroot/bin/
-ln -s /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/include/* ~/sysroot/include/
-ln -s /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/lib/* ~/sysroot/lib/
-ln -s /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/usr/bin/* ~/sysroot/bin/
-ln -s /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/usr/include/* ~/sysroot/include/
-ln -s /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/usr/lib/* ~/sysroot/lib/
+ln -s -f /opt/miyoomini-toolchain/usr/bin/* ~/sysroot/bin/
+ln -s -f /opt/miyoomini-toolchain/usr/include/* ~/sysroot/include/
+ln -s -f /opt/miyoomini-toolchain/usr/lib/* ~/sysroot/lib/
+ln -s -f /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/bin/* ~/sysroot/bin/
+ln -s -f /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/include/* ~/sysroot/include/
+ln -s -f /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/lib/* ~/sysroot/lib/
+ln -s -f /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/usr/bin/* ~/sysroot/bin/
+ln -s -f /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/usr/include/* ~/sysroot/include/
+ln -s -f /opt/miyoomini-toolchain/arm-linux-gnueabihf/libc/usr/lib/* ~/sysroot/lib/
+ln -s -f /opt/miyoomini-toolchain/lib/gcc/arm-linux-gnueabihf/8.3.0/*.o ~/sysroot/lib/
+ln -s -f /opt/miyoomini-toolchain/lib/gcc/arm-linux-gnueabihf/8.3.0/*.a ~/sysroot/lib/
+ln -s -f /opt/miyoomini-toolchain/lib/gcc/arm-linux-gnueabihf/8.3.0/include/* ~/sysroot/include/
 
 apt update
 apt install -y libncurses5-dev libssl-dev ninja-build

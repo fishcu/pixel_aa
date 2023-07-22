@@ -84,15 +84,15 @@ else()
     endif()
 endif()
 
-add_executable(jit_test
-    "src/jit.c"
+add_executable(tcc_jit
+    "src/tcc_jit.c"
 )
-target_link_libraries(jit_test PRIVATE
+target_link_libraries(tcc_jit PRIVATE
     m
     tinycc
 )
 if (BUILD_FOR_MM)
-    target_compile_options(jit_test
+    target_compile_options(tcc_jit
         PRIVATE
         "-Wall"
         "-pedantic"
@@ -102,12 +102,12 @@ if (BUILD_FOR_MM)
         "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
         "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
     )
-    target_compile_definitions(jit_test
+    target_compile_definitions(tcc_jit
         PRIVATE
         "BUILD_FOR_MM"
     )
 else()
-    target_compile_options(jit_test
+    target_compile_options(tcc_jit
         PRIVATE
         "-Wall"
         "-pedantic"
@@ -117,4 +117,50 @@ else()
         "-march=native"
     )
 endif()
+
+find_package(ZLIB REQUIRED)
+
+set(LLVM_DIR "/root/workspace/stage/lib/cmake/llvm")
+find_package(LLVM REQUIRED CONFIG)
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+
+add_executable(llvm_jit
+    "src/llvm_jit.c"
+)
+# target_link_libraries(llvm_jit PRIVATE
+
+# )
+if (BUILD_FOR_MM)
+    target_compile_options(llvm_jit
+        PRIVATE
+        "-Wall"
+        "-pedantic"
+        "-O3"
+        "-finline-functions"
+        "-funroll-loops"
+        "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
+        "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+    )
+    target_compile_definitions(llvm_jit
+        PRIVATE
+        "BUILD_FOR_MM"
+    )
+else()
+    target_compile_options(llvm_jit
+        PRIVATE
+        "-Wall"
+        "-pedantic"
+        "-O3"
+        "-finline-functions"
+        "-funroll-loops"
+        "-march=native"
+    )
+endif()
+
+target_include_directories(llvm_jit PRIVATE ${LLVM_INCLUDE_DIRS})
+separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
+target_compile_definitions(llvm_jit PRIVATE ${LLVM_DEFINITIONS_LIST})
+llvm_map_components_to_libnames(llvm_libs support core irreader)
+target_link_libraries(llvm_jit ${llvm_libs})
 
