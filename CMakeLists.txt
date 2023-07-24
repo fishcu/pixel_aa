@@ -7,8 +7,8 @@ option(USE_OPENMP "Enable OpenMP multithreading" OFF)
 
 if (BUILD_FOR_MM)
     message(STATUS "Building for MM, cross compile var is $ENV{CROSS_COMPILE}") 
-    set(CMAKE_C_COMPILER "$ENV{CROSS_COMPILE}gcc")
-    set(CMAKE_CXX_COMPILER "$ENV{CROSS_COMPILE}g++")
+    # set(CMAKE_C_COMPILER "$ENV{CROSS_COMPILE}gcc")
+    # set(CMAKE_CXX_COMPILER "$ENV{CROSS_COMPILE}g++")
 endif()
 
 if (USE_OPENMP)
@@ -51,10 +51,12 @@ if (BUILD_FOR_MM)
         PRIVATE
         "-Wall"
         "-pedantic"
-        "-O3"
+        "-Oz"
         "-finline-functions"
         "-funroll-loops"
-        "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
+        "-marm"
+        # "-march=armv7ve+simd"
+        "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
         "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
         "-fopenmp"
     )
@@ -84,85 +86,87 @@ else()
     endif()
 endif()
 
-add_executable(tcc_jit
-    "src/tcc_jit.c"
-)
-target_link_libraries(tcc_jit PRIVATE
-    m
-    tinycc
-)
-if (BUILD_FOR_MM)
-    target_compile_options(tcc_jit
-        PRIVATE
-        "-Wall"
-        "-pedantic"
-        "-O3"
-        "-finline-functions"
-        "-funroll-loops"
-        "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
-        "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
-    )
-    target_compile_definitions(tcc_jit
-        PRIVATE
-        "BUILD_FOR_MM"
-    )
-else()
-    target_compile_options(tcc_jit
-        PRIVATE
-        "-Wall"
-        "-pedantic"
-        "-O3"
-        "-finline-functions"
-        "-funroll-loops"
-        "-march=native"
-    )
-endif()
-
-add_subdirectory(deps/zlib)
-add_library(ZLIB::ZLIB ALIAS zlib)
-
-set(LLVM_DIR "/root/workspace/stage/lib/cmake/llvm")
-find_package(LLVM REQUIRED CONFIG)
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-
-add_executable(llvm_jit
-    "src/llvm_jit.cpp"
-)
-target_compile_features(llvm_jit PRIVATE cxx_std_17)
-# target_link_libraries(llvm_jit PRIVATE
-
+# add_executable(tcc_jit
+#     "src/tcc_jit.c"
 # )
-if (BUILD_FOR_MM)
-    target_compile_options(llvm_jit
-        PRIVATE
-        "-Wall"
-        "-pedantic"
-        "-O3"
-        "-finline-functions"
-        "-funroll-loops"
-        "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
-        "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
-    )
-    target_compile_definitions(llvm_jit
-        PRIVATE
-        "BUILD_FOR_MM"
-    )
-else()
-    target_compile_options(llvm_jit
-        PRIVATE
-        "-Wall"
-        "-pedantic"
-        "-O3"
-        "-finline-functions"
-        "-funroll-loops"
-        "-march=native"
-    )
-endif()
+# target_link_libraries(tcc_jit PRIVATE
+#     m
+#     tinycc
+# )
+# if (BUILD_FOR_MM)
+#     target_compile_options(tcc_jit
+#         PRIVATE
+#         "-Wall"
+#         "-pedantic"
+#         "-O3"
+#         "-finline-functions"
+#         "-funroll-loops"
+#         "-marm"
+#         # "-march=armv7ve+simd"
+#         "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
+#         "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+#     )
+#     target_compile_definitions(tcc_jit
+#         PRIVATE
+#         "BUILD_FOR_MM"
+#     )
+# else()
+#     target_compile_options(tcc_jit
+#         PRIVATE
+#         "-Wall"
+#         "-pedantic"
+#         "-O3"
+#         "-finline-functions"
+#         "-funroll-loops"
+#         "-march=native"
+#     )
+# endif()
 
-target_include_directories(llvm_jit PRIVATE ${LLVM_INCLUDE_DIRS})
-separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
-target_compile_definitions(llvm_jit PRIVATE ${LLVM_DEFINITIONS_LIST})
-llvm_map_components_to_libnames(llvm_libs support core irreader)
-target_link_libraries(llvm_jit ${llvm_libs})
+# add_subdirectory(deps/zlib)
+# add_library(ZLIB::ZLIB ALIAS zlib)
+
+# set(LLVM_DIR "/root/workspace/stage/lib/cmake/llvm")
+# find_package(LLVM REQUIRED CONFIG)
+# message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+# message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+
+# add_executable(llvm_jit
+#     "src/llvm_jit.cpp"
+# )
+# target_compile_features(llvm_jit PRIVATE cxx_std_17)
+# # target_link_libraries(llvm_jit PRIVATE
+
+# # )
+# if (BUILD_FOR_MM)
+#     target_compile_options(llvm_jit
+#         PRIVATE
+#         "-Wall"
+#         "-pedantic"
+#         "-O3"
+#         "-finline-functions"
+#         "-funroll-loops"
+#         "-marm" "-march=armv7ve+simd" "-mtune=cortex-a7" "-mfpu=neon-vfpv4" "-mfloat-abi=hard"
+#         "-ffunction-sections" "-fdata-sections" "-Wl,--gc-sections" "-Wl,-s"
+#     )
+#     target_compile_definitions(llvm_jit
+#         PRIVATE
+#         "BUILD_FOR_MM"
+#     )
+# else()
+#     target_compile_options(llvm_jit
+#         PRIVATE
+#         "-Wall"
+#         "-pedantic"
+#         "-O3"
+#         "-finline-functions"
+#         "-funroll-loops"
+#         "-march=native"
+#     )
+# endif()
+
+# target_include_directories(llvm_jit PRIVATE ${LLVM_INCLUDE_DIRS})
+# separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
+# target_compile_definitions(llvm_jit PRIVATE ${LLVM_DEFINITIONS_LIST})
+# llvm_map_components_to_libnames(llvm_libs support core irreader)
+# target_link_libraries(llvm_jit ${llvm_libs})
 
